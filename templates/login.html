@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-5">
+  <form method="post" action="">
+    {{ form.hidden_tag() }}
+    <fieldset class="form-group">
+      <div class="form-group">
+        {{ form.username.label(class="form-control-label") }}
+        {{ form.username(class="form-control form-control-lg") }}
+      </div>
+      <div class="form-group">
+        {{ form.password.label(class="form-control-label") }}
+        {{ form.password(class="form-control form-control-lg") }}
+      </div>
+      <hr class="bg-danger border-2 border-top">
+    </fieldset>
+      <div class="form-group">
+        {{ form.submit(class="btn btn-outline-info") }}
+      </div>
+  </form>
+</div>
+<script type="text/javascript">
+    if (window.history.replaceState) {
+        window.history.replaceState(null, null, window.location.href);
+    }
+</script>
+{% endblock content %}
+
+<!--<div class="container py-5">-->
+<!--  <form method="post">-->
+<!--    <div class="form-group">-->
+<!--      <label for="username">Benutzer</label>-->
+<!--      <input class="form-control" id="username" type="text" name="username" placeholder="Benutzer" required>-->
+<!--    </div>-->
+<!--    <div class="form-group">-->
+<!--      <label for="password">Passwort</label>-->
+<!--      <input class="form-control" id="password" type="password" name="password" placeholder="Passwort" required>-->
+<!--    </div>-->
+<!--    <hr class="bg-danger border-2 border-top">-->
+<!--    <div class="form-group">-->
+<!--      <button class="btn btn-primary" type="submit">Einloggen</button>-->
+<!--    </div>-->
+<!--  </form>-->
+<!--</div>-->

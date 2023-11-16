@@ -3,9 +3,11 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <meta name="description" content="Template" />
+    <meta name="description" content="Inventarisierung" />
     <meta name="author" content="Florian Wenzel" />
-    <title>Template Stadt Worms</title>
+    <script src="https://cdn.rawgit.com/serratus/quaggaJS/0420d5e0/dist/quagga.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.js" type="text/javascript"></script>
+    <title>Inventarisierungstool Stadt Worms</title>
     <!-- Favicon-->
     <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
     <!-- Core theme CSS (includes Bootstrap)-->
@@ -15,16 +17,28 @@
 <!-- Responsive navbar-->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
-        <a class="navbar-brand" href="{{ url_for("home") }}">Template</a>
+        <a class="navbar-brand" href="{{ url_for("home") }}">Inventarisierung</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
         <div class="collapse navbar-collapse" id="navbarSupportedContent">
             <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    {% if current_user.is_authenticated %}
+                        <span class="nav-link">{{ current_user.username }}</span>
+                    {% else %}
+                        <span class="nav-link">nicht eingeloggt</span>
+                    {% endif %}
+                </li>
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" id="navbarDropdown" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Menü</a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                        <li><a class="dropdown-item" href="{{ url_for("home") }}">Template</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for("home") }}">Inventarisierung</a></li>
+                        {% if current_user.is_authenticated %}
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                        {% else %}
+                        <li><a class="dropdown-item" href="{{ url_for('login') }}">Login</a></li>
+                        {% endif %}
                         <li><hr class="dropdown-divider" /></li>
-                        <li><a class="dropdown-item" href="mailto:florian.wenzel@worms.de?subject=Problem mit Template">Problem melden</a></li>
+                        <li><a class="dropdown-item" href="mailto:florian.wenzel@worms.de?subject=Problem mit Inventarisierungstool">Problem melden</a></li>
                     </ul>
                 </li>
             </ul>

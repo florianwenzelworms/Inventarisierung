@@ -17,6 +17,8 @@
         <div class="controls">
             <fieldset class="input-group">
                 <button class="btn btn-danger stop">Stop</button>
+                <button class="btn btn-info start">Start</button>
+                <button class="btn btn-warning reset">Reset</button>
             </fieldset>
             <fieldset class="reader-config-group">
                 <label>
@@ -55,20 +57,20 @@
                         <option value="x-large">x-large</option>
                     </select>
                 </label>
-{#                <label>#}
-{#                    <span>Half-Sample</span>#}
-{#                    <input type="checkbox" checked="checked" name="locator_half-sample" />#}
-{#                </label>#}
-{#                <label>#}
-{#                    <span>Workers</span>#}
-{#                    <select name="numOfWorkers">#}
-{#                        <option value="0">0</option>#}
-{#                        <option value="1">1</option>#}
-{#                        <option value="2">2</option>#}
-{#                        <option selected="selected" value="4">4</option>#}
-{#                        <option value="8">8</option>#}
-{#                    </select>#}
-{#                </label>#}
+                {#                <label>#}
+                {#                    <span>Half-Sample</span>#}
+                {#                    <input type="checkbox" checked="checked" name="locator_half-sample" />#}
+                {#                </label>#}
+                {#                <label>#}
+                {#                    <span>Workers</span>#}
+                {#                    <select name="numOfWorkers">#}
+                {#                        <option value="0">0</option>#}
+                {#                        <option value="1">1</option>#}
+                {#                        <option value="2">2</option>#}
+                {#                        <option selected="selected" value="4">4</option>#}
+                {#                        <option value="8">8</option>#}
+                {#                    </select>#}
+                {#                </label>#}
                 <label>
                     <span>Camera</span>
                     <select name="input-stream_constraints" id="deviceSelection">
@@ -76,10 +78,10 @@
                 </label>
             </fieldset>
         </div>
+        <div id="interactive" class="viewport"></div>
         <div id="result_strip">
             <ul class="thumbnails"></ul>
         </div>
-        <div id="interactive" class="viewport"></div>
     </section>
 
 

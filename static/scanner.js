@@ -17,32 +17,32 @@ $(function() {
             var streamLabel = Quagga.CameraAccess.getActiveStreamLabel();
 
             return Quagga.CameraAccess.enumerateVideoDevices()
-            .then(function(devices) {
-                function pruneText(text) {
-                    return text.length > 30 ? text.substr(0, 30) : text;
-                }
-                var $deviceSelection = document.getElementById("deviceSelection");
-                while ($deviceSelection.firstChild) {
-                    $deviceSelection.removeChild($deviceSelection.firstChild);
-                }
-                devices.forEach(function(device) {
-                    var $option = document.createElement("option");
-                    $option.value = device.deviceId || device.id;
-                    $option.appendChild(document.createTextNode(pruneText(device.label || device.deviceId || device.id)));
-                    $option.selected = streamLabel === device.label;
-                    $deviceSelection.appendChild($option);
+                .then(function(devices) {
+                    function pruneText(text) {
+                        return text.length > 30 ? text.substr(0, 30) : text;
+                    }
+                    var $deviceSelection = document.getElementById("deviceSelection");
+                    while ($deviceSelection.firstChild) {
+                        $deviceSelection.removeChild($deviceSelection.firstChild);
+                    }
+                    devices.forEach(function(device) {
+                        var $option = document.createElement("option");
+                        $option.value = device.deviceId || device.id;
+                        $option.appendChild(document.createTextNode(pruneText(device.label || device.deviceId || device.id)));
+                        $option.selected = streamLabel === device.label;
+                        $deviceSelection.appendChild($option);
+                    });
                 });
-            });
         },
-            querySelectedReaders: function() {
-        return Array.prototype.slice.call(document.querySelectorAll('.readers input[type=checkbox]'))
-            .filter(function(element) {
-                return !!element.checked;
-            })
-            .map(function(element) {
-                return element.getAttribute("name");
-            });
-    },
+        querySelectedReaders: function() {
+            return Array.prototype.slice.call(document.querySelectorAll('.readers input[type=checkbox]'))
+                .filter(function(element) {
+                    return !!element.checked;
+                })
+                .map(function(element) {
+                    return element.getAttribute("name");
+                });
+        },
         attachListeners: function() {
             var self = this;
 
@@ -55,9 +55,9 @@ $(function() {
             $(".controls .reader-config-group").on("change", "input, select", function(e) {
                 e.preventDefault();
                 var $target = $(e.target);
-                   // value = $target.attr("type") === "checkbox" ? $target.prop("checked") : $target.val(),
-                   value =  $target.attr("type") === "checkbox" ? this.querySelectedReaders() : $target.val();
-                  var  name = $target.attr("name"),
+                // value = $target.attr("type") === "checkbox" ? $target.prop("checked") : $target.val(),
+                value =  $target.attr("type") === "checkbox" ? this.querySelectedReaders() : $target.val();
+                var  name = $target.attr("name"),
                     state = self._convertNameToState(name);
 
                 console.log("Value of "+ state + " changed to " + value);
@@ -145,8 +145,8 @@ $(function() {
             inputStream: {
                 type : "LiveStream",
                 constraints: {
-                    width: {min: 640},
-                    height: {min: 480},
+                    width: {min: 480},
+                    height: {min: 320},
                     aspectRatio: {min: 1, max: 100},
                     facingMode: "environment" // or user
                 }
@@ -162,11 +162,23 @@ $(function() {
             locate: true,
             multiple:true
         },
-        lastResult : null
+        lastResult : [],
+        mailContent: []
     };
 
-                   //value =  App.querySelectedReaders() ;
+    //value =  App.querySelectedReaders() ;
     App.init();
+
+    $(".controls").on("click", "button.reset", function(e) {
+        e.preventDefault();
+        document.getElementsByClassName("thumbnails")[0].innerHTML = "";
+        App.lastResult = [];
+    });
+
+    $(".controls").on("click", "button.start", function(e) {
+        e.preventDefault();
+        App.init();
+    });
 
     Quagga.onProcessed(function(result) {
         var drawingCtx = Quagga.canvas.ctx.overlay,
@@ -195,14 +207,15 @@ $(function() {
     Quagga.onDetected(function(result) {
         var code = result.codeResult.code;
 
-        if (App.lastResult !== code) {
-            App.lastResult = code;
+        if (App.lastResult.includes(code) === false) {
+            App.lastResult.push(code);
             var $node = null, canvas = Quagga.canvas.dom.image;
 
             $node = $('<li><div class="thumbnail"><div class="imgWrapper"><img /></div><div class="caption"><h4 class="code"></h4></div></div></li>');
             $node.find("img").attr("src", canvas.toDataURL());
             $node.find("h4.code").html(code);
             $("#result_strip ul.thumbnails").prepend($node);
+            App.mailContent.push({"code":code, "img":canvas.toDataURL()})
         }
     });
 });

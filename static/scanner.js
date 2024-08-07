@@ -169,15 +169,46 @@ $(function() {
     //value =  App.querySelectedReaders() ;
     App.init();
 
+    $(".controls").on("click", "button.start", function(e) {
+        e.preventDefault();
+        App.init();
+    });
+
     $(".controls").on("click", "button.reset", function(e) {
         e.preventDefault();
         document.getElementsByClassName("thumbnails")[0].innerHTML = "";
         App.lastResult = [];
+        App.mailContent = [];
     });
 
-    $(".controls").on("click", "button.start", function(e) {
-        e.preventDefault();
-        App.init();
+    $(".controls").on("click", "button.send", function(e) {
+        if (document.getElementById("raumfeld").value === "") {
+            alert("Noch keine Rauminformation eingegeben");
+            return;
+        } else if (App.lastResult.length === 0) {
+            alert("Noch keine Geräte gescannt");
+            return;
+        } else {
+            if (!App.mailContent[0].hasOwnProperty('Text')) {
+                App.mailContent.unshift({"Text": document.getElementById("raumfeld").value});
+            } else {
+                App.mailContent[0]["Text"] = document.getElementById("raumfeld").value;
+            }
+            console.log(App.mailContent);
+            jQuery.ajax ({
+                url: "/save",
+                type: "POST",
+                data: JSON.stringify(App.mailContent),
+                dataType: "json",
+                contentType: "application/json; charset=utf-8",
+                complete: function(){
+                    document.getElementsByClassName("thumbnails")[0].innerHTML = "";
+                    document.getElementById("raumfeld").value = "";
+                    App.lastResult = [];
+                    App.mailContent = [];
+                }
+            });
+        }
     });
 
     Quagga.onProcessed(function(result) {
@@ -210,7 +241,6 @@ $(function() {
         if (App.lastResult.includes(code) === false) {
             App.lastResult.push(code);
             var $node = null, canvas = Quagga.canvas.dom.image;
-
             $node = $('<li><div class="thumbnail"><div class="imgWrapper"><img /></div><div class="caption"><h4 class="code"></h4></div></div></li>');
             $node.find("img").attr("src", canvas.toDataURL());
             $node.find("h4.code").html(code);

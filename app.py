@@ -29,7 +29,7 @@ class User(db.Model, UserMixin):
 
 class Entry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    data = db.Column(db.String(), nullable=False)
+    data = db.Column(db.JSON, nullable=False)
     user = db.Column(db.String(60), nullable=False)
     timestamp = db.Column(db.DateTime(timezone=True), default=datetime.now(timezone.utc))
     export = db.Column(db.Boolean, nullable=False, default=False)
@@ -70,17 +70,19 @@ def save():
     if current_user.is_authenticated:
         if request.method == 'POST':
             content = json.loads(request.data)
-            for data in content:
-                if "Text" in data.keys():
-                    print(data["Text"])
-                else:
-                    filename = "temp/"+data["code"]+".png"
-                    try:
-                        with open(filename, "wb") as fh:
-                            # Change imagevalue to string and split the b64 coding, then decode with b64, safe to image
-                            fh.write(base64.b64decode((str(data["img"]).split(",")[1].encode("ascii")), validate=True))
-                    except Exception as e:
-                        print(e)
+            db.session.add(Entry(data=content, user=current_user.email))
+            db.session.commit()
+            # for data in content:
+            #     if "Text" in data.keys():
+            #         print(data["Text"])
+            #     else:
+            #         filename = "temp/"+data["code"]+".png"
+            #         try:
+            #             with open(filename, "wb") as fh:
+            #                 # Change imagevalue to string and split the b64 coding, then decode with b64, safe to image
+            #                 fh.write(base64.b64decode((str(data["img"]).split(",")[1].encode("ascii")), validate=True))
+            #         except Exception as e:
+            #             print(e)
             return "Success", 200
         else:
             print("no POST")

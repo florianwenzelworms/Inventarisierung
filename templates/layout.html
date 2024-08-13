@@ -23,7 +23,7 @@
             <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
                 <li class="nav-item">
                     {% if current_user.is_authenticated %}
-                        <span class="nav-link">{{ current_user.username }}</span>
+                        <span class="nav-link">{{ current_user.cn }} - {% if 'Domänen-Admins' in current_user.groups %} ADMIN {% else %} {{ current_user.department }} {% endif %}</span>
                     {% else %}
                         <span class="nav-link">nicht eingeloggt</span>
                     {% endif %}

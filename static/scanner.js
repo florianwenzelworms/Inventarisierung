@@ -1,6 +1,7 @@
 /**Quagga initialiser starts here*/
 
 $(function() {
+
     var value;
     var App = {
         init : function() {
@@ -211,6 +212,31 @@ $(function() {
         }
     });
 
+    // $('.codeimg').on('click', function () {
+    //     let code = this.children[0].children[1].children[0].innerText;
+    //     let indexResult = App.lastResult.indexOf(code);
+    //     let indexMail = App.mailContent.indexOf(code);
+    //     App.lastResult.splice(indexResult, 1);
+    //     App.mailContent.splice(indexMail, 1);
+    //     //this.remove();
+    //     console.log(App.lastResult);
+    //     console.log(App.mailContent);
+    // });
+
+    $.fn.rm = function (el) {
+        console.log(App.lastResult);
+        console.log(App.mailContent[0]);
+        let code = el.children[0].children[1].children[0].innerText;
+        let indexResult = App.lastResult.indexOf(code);
+        let indexMail = App.mailContent.indexOf(code);
+        App.lastResult.splice(indexResult, 1);
+        App.mailContent.splice(indexMail, 1);
+        el.remove();
+        console.log(App.lastResult);
+        console.log(App.mailContent);
+    };
+
+
     Quagga.onProcessed(function(result) {
         var drawingCtx = Quagga.canvas.ctx.overlay,
             drawingCanvas = Quagga.canvas.dom.overlay;
@@ -239,9 +265,11 @@ $(function() {
         var code = result.codeResult.code;
 
         if (App.lastResult.includes(code) === false) {
+            console.log(App.lastResult);
+            console.log(App.mailContent);
             App.lastResult.push(code);
             var $node = null, canvas = Quagga.canvas.dom.image;
-            $node = $('<li><div class="thumbnail"><div class="imgWrapper"><img /></div><div class="caption"><h4 class="code"></h4></div></div></li>');
+            $node = $('<li ondblclick=$.fn.rm(this)><div class="thumbnail"><div class="imgWrapper"><img/></div><div class="caption"><h4 class="code"></h4></div></div></li>');
             $node.find("img").attr("src", canvas.toDataURL());
             $node.find("h4.code").html(code);
             $("#result_strip ul.thumbnails").prepend($node);

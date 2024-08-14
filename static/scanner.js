@@ -2,8 +2,8 @@
 
 $(function() {
 
-    var value;
-    var App = {
+    let value;
+    let App = {
         init : function() {
             Quagga.init(this.state, function(err) {
                 if (err) {
@@ -15,7 +15,7 @@ $(function() {
             });
         },
         initCameraSelection: function(){
-            var streamLabel = Quagga.CameraAccess.getActiveStreamLabel();
+            let streamLabel = Quagga.CameraAccess.getActiveStreamLabel();
 
             return Quagga.CameraAccess.enumerateVideoDevices()
                 .then(function(devices) {
@@ -45,7 +45,7 @@ $(function() {
                 });
         },
         attachListeners: function() {
-            var self = this;
+            let self = this;
 
             self.initCameraSelection();
             $(".controls").on("click", "button.stop", function(e) {
@@ -55,10 +55,10 @@ $(function() {
 
             $(".controls .reader-config-group").on("change", "input, select", function(e) {
                 e.preventDefault();
-                var $target = $(e.target);
+                let $target = $(e.target);
                 // value = $target.attr("type") === "checkbox" ? $target.prop("checked") : $target.val(),
                 value =  $target.attr("type") === "checkbox" ? this.querySelectedReaders() : $target.val();
-                var  name = $target.attr("name"),
+                let name = $target.attr("name"),
                     state = self._convertNameToState(name);
 
                 console.log("Value of "+ state + " changed to " + value);
@@ -66,7 +66,7 @@ $(function() {
             });
         },
         _accessByPath: function(obj, path, val) {
-            var parts = path.split('.'),
+            let parts = path.split('.'),
                 depth = parts.length,
                 setter = (typeof val !== "undefined") ? true : false;
 
@@ -91,7 +91,7 @@ $(function() {
             $(".controls .reader-config-group").off("change", "input, select");
         },
         setState: function(path, value) {
-            var self = this;
+            let self = this;
 
             if (typeof self._accessByPath(self.inputMapper, path) === "function") {
                 value = self._accessByPath(self.inputMapper, path)(value);
@@ -108,7 +108,7 @@ $(function() {
             inputStream: {
                 constraints: function(value){
                     if (/^(\d+)x(\d+)$/.test(value)) {
-                        var values = value.split('x');
+                        let values = value.split('x');
                         return {
                             width: {min: parseInt(values[0])},
                             height: {min: parseInt(values[1])}
@@ -195,7 +195,6 @@ $(function() {
             } else {
                 App.mailContent[0]["Text"] = document.getElementById("raumfeld").value;
             }
-            console.log(App.mailContent);
             jQuery.ajax ({
                 url: "/save",
                 type: "POST",
@@ -212,33 +211,19 @@ $(function() {
         }
     });
 
-    // $('.codeimg').on('click', function () {
-    //     let code = this.children[0].children[1].children[0].innerText;
-    //     let indexResult = App.lastResult.indexOf(code);
-    //     let indexMail = App.mailContent.indexOf(code);
-    //     App.lastResult.splice(indexResult, 1);
-    //     App.mailContent.splice(indexMail, 1);
-    //     //this.remove();
-    //     console.log(App.lastResult);
-    //     console.log(App.mailContent);
-    // });
 
     $.fn.rm = function (el) {
-        console.log(App.lastResult);
-        console.log(App.mailContent[0]);
         let code = el.children[0].children[1].children[0].innerText;
         let indexResult = App.lastResult.indexOf(code);
         let indexMail = App.mailContent.indexOf(code);
         App.lastResult.splice(indexResult, 1);
         App.mailContent.splice(indexMail, 1);
         el.remove();
-        console.log(App.lastResult);
-        console.log(App.mailContent);
     };
 
 
     Quagga.onProcessed(function(result) {
-        var drawingCtx = Quagga.canvas.ctx.overlay,
+        let drawingCtx = Quagga.canvas.ctx.overlay,
             drawingCanvas = Quagga.canvas.dom.overlay;
 
         if (result) {
@@ -262,13 +247,11 @@ $(function() {
     });
 
     Quagga.onDetected(function(result) {
-        var code = result.codeResult.code;
+        let code = result.codeResult.code;
 
         if (App.lastResult.includes(code) === false) {
-            console.log(App.lastResult);
-            console.log(App.mailContent);
             App.lastResult.push(code);
-            var $node = null, canvas = Quagga.canvas.dom.image;
+            let $node = null, canvas = Quagga.canvas.dom.image;
             $node = $('<li ondblclick=$.fn.rm(this)><div class="thumbnail"><div class="imgWrapper"><img/></div><div class="caption"><h4 class="code"></h4></div></div></li>');
             $node.find("img").attr("src", canvas.toDataURL());
             $node.find("h4.code").html(code);

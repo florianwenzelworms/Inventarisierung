@@ -33,9 +33,10 @@
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                         <li><a class="dropdown-item" href="{{ url_for("home") }}">Inventarisierung</a></li>
                         {% if current_user.is_authenticated %}
-                        <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('scanimport') }}">Import starten</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
                         {% else %}
-                        <li><a class="dropdown-item" href="{{ url_for('login') }}">Login</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('login') }}">Login</a></li>
                         {% endif %}
                         <li><hr class="dropdown-divider" /></li>
                         <li><a class="dropdown-item" href="mailto:florian.wenzel@worms.de?subject=Problem mit Inventarisierungstool">Problem melden</a></li>

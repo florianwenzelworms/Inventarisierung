@@ -3,7 +3,9 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, current_user, logout_user
 from datetime import datetime, timezone
+from flask_mail import Mail, Message
 from forms import LoginForm
+import os
 import json
 import base64
 import ldap3
@@ -14,6 +16,17 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///Inventarisierung.db"
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
+
+mail_settings = {
+    "MAIL_SERVER": 'oma.worms.de',
+    "MAIL_PORT": 587,
+    "MAIL_USE_TLS": True,
+    "MAIL_USE_SSL": False,
+    "MAIL_USERNAME": os.environ['EMAIL_USER'],
+    "MAIL_PASSWORD": os.environ['EMAIL_PASSWORD']
+}
+app.config.update(mail_settings)
+mail = Mail(app)
 
 # LDAP Settings
 LDAP_USER = "anmelde_dom\\readad"
@@ -121,7 +134,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.route("/save", methods=["POST", "PUT"])
+@app.route("/save", methods=["POST"])
 def save():
     if current_user.is_authenticated:
         if request.method == 'POST':
@@ -129,38 +142,62 @@ def save():
             db.session.add(Entry(data=content, user=current_user.id))
             db.session.commit()
             return "Success", 200
-        elif request.method == 'PUT':
-            entries = db.session.query(Entry).filter(Entry.user == current_user.id).all()
-            for entry in entries:
-                print(entry.id)
-            return "Success", 200
         else:
             print("no POST or PUT")
     else:
         print("no authenticated user")
 
 
+@app.route("/import", methods=["GET"])
+def scanimport():
+    if current_user.is_authenticated:
+        if request.method == 'GET':
+            try:
+                entries = db.session.query(Entry).filter(Entry.user == current_user.id).filter(Entry.export == False).all()
 
+                if entries:
+                    for entry in entries:
+                        scans = []
+                        text = ""
+                        temp = []
+                        for i in entry.data:
+                            if 'Text' in i.keys():
+                                text = i['Text']
+                            else:
+                                filename = i["code"] + ".png"
+                                filepath = "temp/" + i["code"] + ".png"
+                                try:
+                                    with open(filepath, "wb") as fh:
+                                        # Change imagevalue to string and split the b64 coding, then decode with b64, safe to image
+                                        fh.write(base64.b64decode((str(i["img"]).split(",")[1].encode("ascii")), validate=True))
+                                        temp = {'code': i['code'], 'img': filename}
+                                        entry.export = True
+                                        db.session.commit()
+                                except Exception as e:
+                                    print(e)
+                                scans.append(temp)
+                        msg = Message(subject="Test",
+                                      sender="florian.wenzel@worms.de",
+                                      recipients=["florian.wenzel@worms.de"],
+                                      html=render_template('mail.html', info=text, scans=scans, user=current_user))
+                        for filename in os.listdir('temp'):
+                            f = os.path.join('temp', filename)
+                            with open(f, "rb") as fp:
+                                msg.attach(filename, 'image/png', fp.read())
+                        mail.send(msg)
+                        for filename in os.listdir('temp'):
+                            f = os.path.join('temp', filename)
+                            os.remove(f)
+                    #return render_template('mail.html', info=text, scans=scans, user=current_user)
+                    return redirect(url_for("login"))
+            except Exception as e:
+                print(e)
+    return redirect(url_for("login"))
 
 
 if __name__ == '__main__':
     # No SSL
-    # app.run(host='0.0.0.0', port=3000, debug=True)
+    app.run(host='0.0.0.0', port=3000, debug=True)
 
     # With SSL active, for testing purposes on iPad for ex.
-    app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")
-
-
-
-# Old part for converting base64 string to image
-# for data in content:
-#     if "Text" in data.keys():
-#         print(data["Text"])
-#     else:
-#         filename = "temp/"+data["code"]+".png"
-#         try:
-#             with open(filename, "wb") as fh:
-#                 # Change imagevalue to string and split the b64 coding, then decode with b64, safe to image
-#                 fh.write(base64.b64decode((str(data["img"]).split(",")[1].encode("ascii")), validate=True))
-#         except Exception as e:
-#             print(e)
+    # app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")

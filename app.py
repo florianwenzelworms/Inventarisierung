@@ -9,31 +9,32 @@ import os
 import json
 import base64
 import ldap3
+from credentials import *
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = 'e79b9847144221ba4e85df9dd483a3e5'
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///Inventarisierung.db"
+app.config["SECRET_KEY"] = SECRET_KEY
+app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 
 mail_settings = {
-    "MAIL_SERVER": 'oma.worms.de',
-    "MAIL_PORT": 587,
-    "MAIL_USE_TLS": True,
-    "MAIL_USE_SSL": False,
-    "MAIL_USERNAME": os.environ['EMAIL_USER'],
-    "MAIL_PASSWORD": os.environ['EMAIL_PASSWORD']
+    "MAIL_SERVER": MAIL_SERVER,
+    "MAIL_PORT": MAIL_PORT,
+    "MAIL_USE_TLS": MAIL_USE_TLS,
+    "MAIL_USE_SSL": MAIL_USE_SSL,
+    "MAIL_USERNAME": MAIL_USERNAME,
+    "MAIL_PASSWORD": MAIL_PASSWORD
 }
 app.config.update(mail_settings)
 mail = Mail(app)
 
 # LDAP Settings
-LDAP_USER = "anmelde_dom\\readad"
-LDAP_PASS = "***REMOVED***"
-LDAP_SERVER = "ldap://2.1.10.245"
-AD_DOMAIN = "ANMELDE_DOM"
-SEARCH_BASE = "CN=Users,DC=stadt,DC=worms"
+LDAP_USER = LDAP_USER
+LDAP_PASS = LDAP_PASS
+LDAP_SERVER = LDAP_SERVER
+AD_DOMAIN = AD_DOMAIN
+SEARCH_BASE = SEARCH_BASE
 
 
 class User(UserMixin):
@@ -174,11 +175,11 @@ def scanimport():
                                         entry.export = True
                                         db.session.commit()
                                 except Exception as e:
-                                    print(e)
+                                    print("Fehler beim Speichern eines Bildes: " + str(e))
                                 scans.append(temp)
                         msg = Message(subject="Test",
                                       sender="florian.wenzel@worms.de",
-                                      recipients=["florian.wenzel@worms.de"],
+                                      recipients=[str(current_user.mail)],
                                       html=render_template('mail.html', info=text, scans=scans, user=current_user))
                         for filename in os.listdir('temp'):
                             f = os.path.join('temp', filename)
@@ -191,7 +192,7 @@ def scanimport():
                     #return render_template('mail.html', info=text, scans=scans, user=current_user)
                     return redirect(url_for("login"))
             except Exception as e:
-                print(e)
+                print("Fehler beim Scan Import: " + str(e))
     return redirect(url_for("login"))
 
 

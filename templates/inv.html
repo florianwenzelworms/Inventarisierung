@@ -11,8 +11,17 @@
     </style>
     <section id="container" class="container">
         <div class="form-group">
-            <label for="raumfeld">Raum</label>
-            <input type="text" class="form-control form-control-lg" id="raumfeld" placeholder="Raum">
+            <label for="hardwaretyp">Hardwaretyp</label>
+            <select name="hardwaretyp" id="hardwaretyp" class="form-select  form-select-lg"  onchange="hardwaretypChange(this.value)">
+                <option value="rechner" selected>Rechner</option>
+                <option value="bildschirm" >Bildschirm</option>
+                <option value="tablet">Tablet</option>
+                <option value="sonstiges">Sonstiges</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="bezeichnungsfeld">Bezeichnung</label>
+            <input type="text" class="form-control form-control-lg" id="raumfeld" placeholder="Bezeichnung">
         </div>
         <br>
         <div class="controls">
@@ -59,20 +68,6 @@
                         <option value="x-large">x-large</option>
                     </select>
                 </label>
-                {#                <label>#}
-                {#                    <span>Half-Sample</span>#}
-                {#                    <input type="checkbox" checked="checked" name="locator_half-sample" />#}
-                {#                </label>#}
-                {#                <label>#}
-                {#                    <span>Workers</span>#}
-                {#                    <select name="numOfWorkers">#}
-                {#                        <option value="0">0</option>#}
-                {#                        <option value="1">1</option>#}
-                {#                        <option value="2">2</option>#}
-                {#                        <option selected="selected" value="4">4</option>#}
-                {#                        <option value="8">8</option>#}
-                {#                    </select>#}
-                {#                </label>#}
                 <label>
                     <span>Camera</span>
                     <select name="input-stream_constraints" id="deviceSelection">
@@ -81,14 +76,38 @@
             </fieldset>
         </div>
         <br>
-        <div id="interactive" class="viewport"></div>
         <div id="result_strip">
-            <ul class="thumbnails"></ul>
+            <ul class="thumbnails">
+                <li class="inventarnummer">
+                    <span>Inventarnummer</span>
+                    <div class="thumbnail" id="inventarnummer"></div>
+                </li>
+                <li class="seriennummer">
+                    <span>Seriennummer</span>
+                    <div class="thumbnail" id="seriennummer"></div>
+                </li>
+                <li class="macadresse">
+                    <span>MAC-Adresse</span>
+                    <div class="thumbnail" id="macadresse"></div>
+                </li>
+            </ul>
         </div>
+        <div id="interactive" class="viewport"></div>
     </section>
 
 
     <!-- Include the image-diff library -->
     <script src="{{ url_for("static", filename="quagga.min.js") }}"></script>
-    <script src="{{ url_for("static", filename="scanner.js") }}"></script>
+    <script src="{{ url_for("static", filename="scanner_inv.js") }}"></script>
+    <script type="text/javascript">
+    function hardwaretypChange(val) {
+        if (val === "bildschirm") {
+            document.getElementsByClassName("macadresse")[0].classList.add("invisible");
+            console.log(document.getElementById("hardwaretyp").value);
+        } else {
+            document.getElementsByClassName("macadresse")[0].classList.remove("invisible");
+            console.log(document.getElementById("hardwaretyp").value);
+        }
+    }
+    </script>
 {% endblock content %}

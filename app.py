@@ -73,7 +73,21 @@ def authenticate_ldap(username, password):
             if conn.bind():
                 print("Authentication successful")
                 user = User(username)
-                return user
+                # JETZT die zusätzlichen Daten abrufen und dem Objekt hinzufügen
+                try:
+                    # get_user_data gibt ein Tupel zurück
+                    user_details = get_user_data(username)
+                    if user_details:
+                        user.cn, user.mail, user.department, user.groups = user_details
+                        print(f"User data loaded for {username}: Groups - {user.groups}")
+                        return user
+                    else:
+                        # Falls aus irgendeinem Grund keine Daten gefunden wurden
+                        print(f"Authentication successful, but could not retrieve data for {username}")
+                        return False
+                except Exception as e:
+                    print(f"Error retrieving user data: {e}")
+                    return False
     except Exception as e:
         print(f"LDAP authentication failed: {e}")
     return False
@@ -113,6 +127,14 @@ def home():
         return redirect(url_for("login"))
 
 
+@app.route('/inv', methods=["GET"])
+def inv():
+    if current_user.is_authenticated:
+        return render_template('inv.html')
+    else:
+        return redirect(url_for("login"))
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -120,7 +142,7 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         user = authenticate_ldap(form.username.data, form.password.data)
-        if user:
+        if user and "1.05" in user.groups:
             login_user(user, remember=True)
             flash("Eingeloggt als " + user.id + "!", "success")
             return redirect(url_for('home'))
@@ -196,9 +218,14 @@ def scanimport():
     return redirect(url_for("login"))
 
 
+@app.route('/test', methods=["GET"])
+def test():
+    return render_template('test.html')
+
+
 if __name__ == '__main__':
     # No SSL
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    # app.run(host='0.0.0.0', port=3000, debug=True)
 
     # With SSL active, for testing purposes on iPad for ex.
-    # app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")
+    app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")

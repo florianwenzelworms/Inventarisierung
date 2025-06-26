@@ -1,12 +1,15 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import json
-import credentials
+from credentials import TOPDESK_API_URL, TOPDESK_API_USER, TOPDESK_API_PASS, HTTP_PROXY
 
 
-proxies = {"http": credentials.HTTP_PROXY,
-           "https": credentials.HTTP_PROXY}
-auth = HTTPBasicAuth(credentials.TOPDESK_API_USER, credentials.TOPDESK_API_PASS)
+proxies = {"http": HTTP_PROXY,
+           "https": HTTP_PROXY}
+auth = HTTPBasicAuth(TOPDESK_API_USER, TOPDESK_API_PASS)
+base_url = TOPDESK_API_URL
+
+
 
 
 def getAsset(assetID):
@@ -41,10 +44,10 @@ def unlinkAssignments(roomID, assetID):
 
 
 def getLocation(roomname):
-    url = "https://topdesk.worms.de/tas/api/locations?query=name=='%s'" %roomname
+    url = "https://topdesk.worms.de/tas/api/locations?query=name=='%s'" % roomname
     response = requests.request("GET", url, auth=auth, proxies=proxies)
     j = json.loads(response.text)
-    if j.status_code == 200:
+    if response.status_code == 200:
         for res in j:
             if res['name'] == roomname:
                 return json.loads(response.text)[0]
@@ -79,7 +82,8 @@ def getLocationAssets(location):
         data = json.loads(response.text)['dataSet']
         assets = []
         for asset in data:
-            assets.append(getAssetInfo(asset['data']['unid']))
+            print(asset)
+            assets.append(getAssetInfo(asset['id'])['data']['unid'])
         return assets
 
 

@@ -358,29 +358,38 @@ def get_assets_for_room():
     if not current_user.is_authenticated:
         return jsonify({'success': False, 'message': 'Nicht authentifiziert'}), 401
 
-    # 2. Den Raumnamen aus der Anfrage holen
+    # 2. Den 'room'-Parameter aus der URL lesen (z.B. ?room=Raumname)
     room_name = request.args.get('room')
     if not room_name:
-        return jsonify({'success': False, 'message': 'Kein Raumname angegeben'}), 400
+        return jsonify({'success': False, 'message': 'Kein Raumname in der Anfrage gefunden.'}), 400
+
+    print(f"Anfrage für Assets in Raum erhalten: '{room_name}'")
 
     try:
         # 3. Zuerst die ID des Raumes anhand des Namens von TopDesk holen
+        # Hier wird die Original-Funktion aus Ihrer topdesk.py aufgerufen
         location_details = topdesk.getLocation(room_name)
+        # 4. Prüfen, ob der Raum gefunden wurde
         if not location_details or 'id' not in location_details:
+            print(f"Raum '{room_name}' nicht in TopDesk gefunden.")
             return jsonify({'success': False, 'message': f'Raum "{room_name}" nicht in TopDesk gefunden.'}), 404
 
         location_id = location_details['id']
+        print(f"Raum-ID für '{room_name}' ist: {location_id}")
 
-        # 4. Mit der Raum-ID alle zugehörigen Assets abrufen
+        # 5. Mit der Raum-ID alle zugehörigen Assets abrufen
+        # Hier wird die Original-Funktion aus Ihrer topdesk.py aufgerufen
         assets_in_room = topdesk.getLocationAssets(location_id)
 
-        # 5. Die gefundene Asset-Liste als JSON an das Frontend zurückgeben
+        # 6. Die gefundene Asset-Liste als JSON an das Frontend zurückgeben
+        print(f"{len(assets_in_room)} Assets gefunden.")
         return jsonify({'success': True, 'assets': assets_in_room})
 
     except Exception as e:
-        # Fängt Fehler bei der Kommunikation mit der TopDesk-API ab
-        error_message = f"Fehler bei der Abfrage von TopDesk: {e}"
+        # Fängt alle anderen Fehler ab, die in den topdesk-Funktionen auftreten könnten
+        error_message = f"Ein Fehler ist bei der Verarbeitung der TopDesk-Anfrage aufgetreten: {e}"
         print(error_message)
+        # Geben Sie eine detailliertere Fehlermeldung für das Debugging zurück
         return jsonify({'success': False, 'message': error_message}), 500
 
 

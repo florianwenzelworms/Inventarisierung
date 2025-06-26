@@ -1,0 +1,185 @@
+{% extends "layout.html" %}
+{% block content %}
+    <style>
+        body { padding: 2rem; }
+        .accordion-button:not(.collapsed) { background-color: #e7f1ff; }
+        .feedback { display: none; margin-top: 10px; }
+
+        /* NEU: Styling für die kleinen, klickbaren Vorschaubilder */
+        .image-preview {
+            max-width: 100px; /* Kleinere Breite */
+            height: 25px;      /* Kleinere Höhe */
+            object-fit: contain;
+            cursor: pointer;   /* Zeigt an, dass das Bild klickbar ist */
+            transition: transform 0.2s ease-in-out; /* Sanfter Hover-Effekt */
+        }
+        .image-preview:hover {
+            transform: scale(1.2); /* Leichte Vergrößerung beim Drüberfahren */
+        }
+
+        /* Styling für das Bild im Modal, damit es nicht zu riesig wird */
+        #modalImage {
+            max-height: 80vh; /* Maximale Höhe: 80% der Bildschirmhöhe */
+            width: auto;
+            max-width: 100%;
+        }
+    </style>
+
+    <div class="container">
+        <h1 class="mb-4">Offene Scans Bearbeiten</h1>
+        <p>Benutzer: <strong>{{ current_user.id }}</strong></p>
+
+        {% if entries %}
+            <div class="accordion" id="scansAccordion">
+                {% for entry in entries %}
+                    {% set text_item = entry.data | selectattr('Text', 'defined') | first %}
+                    {% set code_items = entry.data | selectattr('code', 'defined') | list %}
+
+                    <div class="accordion-item" id="accordion-item-{{ entry.id }}">
+                        <h2 class="accordion-header" id="heading-{{ entry.id }}">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ entry.id }}">
+                                <strong>Eintrag #{{ entry.id }}</strong> &nbsp;-&nbsp;
+                                <span>{{ text_item.Text if text_item }}</span> &nbsp;-&nbsp;
+                                <span class="badge bg-secondary">{{ code_items | length }} Codes</span>
+                            </button>
+                        </h2>
+                        <div id="collapse-{{ entry.id }}" class="accordion-collapse collapse" data-bs-parent="#scansAccordion">
+                            <div class="accordion-body">
+                                <h5>Daten für Eintrag #{{ entry.id }}</h5>
+
+                                <div class="mb-3">
+                                    <label for="text-{{ entry.id }}" class="form-label">Raum / Beschreibung</label>
+                                    <input type="text" class="form-control" id="text-{{ entry.id }}" value="{{ text_item.Text if text_item }}">
+                                </div>
+
+                                <h6 class="mt-4">Gescannte IDs</h6>
+                                <div id="codes-container-{{ entry.id }}">
+                                    {% for item in code_items %}
+                                        <div class="d-flex align-items-center mb-2 barcode-row">
+                                            <input type="text" class="form-control me-2 code-input" value="{{ item.code }}">
+                                            <input type="hidden" class="image-data" value="{{ item.img }}">
+                                            <img src="{{ item.img }}"
+                                                 class="img-thumbnail me-2 image-preview"
+                                                 alt="Vorschau für {{ item.code }}"
+                                                 data-bs-toggle="modal"
+                                                 data-bs-target="#imageModal">
+                                            <button type="button" class="btn btn-outline-danger btn-sm delete-row-btn" title="Diesen Scan löschen"> &times; </button>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+
+                                <hr>
+                                <button class="btn btn-success save-btn" data-entry-id="{{ entry.id }}">Änderungen für diesen Eintrag speichern</button>
+                                <div class="alert feedback" id="feedback-{{ entry.id }}" role="alert"></div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+        {% endif %}
+        <a href="{{ url_for('home') }}" class="btn btn-primary mt-4">Zurück zur Hauptseite</a>
+        <a href="{{ url_for('scanimport') }}" class="btn btn-primary mt-4">Import starten</a>
+
+    </div>
+
+    <div class="modal fade" id="imageModal" tabindex="-1" aria-labelledby="imageModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center">
+                    <img src="" id="modalImage" class="img-fluid" alt="Großansicht">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const accordion = document.getElementById('scansAccordion');
+            const imageModal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+
+            // --- Einziger, zentraler Event-Listener für alle Klicks im Accordion ---
+            accordion.addEventListener('click', function (event) {
+
+                // --- 1. Prüfen, ob ein LÖSCHEN-Button geklickt wurde ---
+                const deleteBtn = event.target.closest('.delete-row-btn');
+                if (deleteBtn) {
+                    const row = deleteBtn.closest('.barcode-row');
+                    if (row) {
+                        row.remove();
+                    }
+                    // Wichtig: Die Funktion hier beenden, damit nicht versucht wird, auch zu speichern.
+                    return;
+                }
+
+                // --- 2. Prüfen, ob ein SPEICHERN-Button geklickt wurde ---
+                const saveBtn = event.target.closest('.save-btn');
+                if (saveBtn) {
+                    const entryId = saveBtn.dataset.entryId;
+
+                    // --- NEUE, ROBUSTERE SUCHE ---
+                    // 1. Finde den gemeinsamen Container ".accordion-body", von dem Button ausgehend.
+                    const container = saveBtn.closest('.accordion-body');
+
+                    // 2. Suche das Text-Element und das Feedback-Element NUR INNERHALB dieses Containers.
+                    const textElement = container.querySelector(`#text-${entryId}`);
+                    const feedbackElement = container.querySelector(`#feedback-${entryId}`);
+
+                    // Sicherheitsprüfung, falls etwas Unerwartetes passiert
+                    if (!textElement || !feedbackElement) {
+                        console.error("Kritisches Problem: Text- oder Feedback-Element konnte im Container nicht gefunden werden. HTML-Struktur prüfen.");
+                        return;
+                    }
+
+                    const newText = textElement.value;
+                    const allRows = container.querySelectorAll('.barcode-row');
+
+                    const newItems = Array.from(allRows).map(row => {
+                        const code = row.querySelector('.code-input').value;
+                        const img = row.querySelector('.image-data').value;
+                        return { code: code, img: img };
+                    });
+
+                    const payload = {
+                        text: newText,
+                        items: newItems
+                    };
+
+                    // Fetch-Request zum Speichern (unverändert)
+                    fetch(`/update_entry/${entryId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            feedbackElement.style.display = 'block';
+                            if (data.success) {
+                                feedbackElement.className = 'alert alert-success feedback';
+                                feedbackElement.textContent = data.message;
+                                // Der Header ist außerhalb des Containers, muss also weiterhin global gesucht werden
+                                document.querySelector(`#heading-${entryId} button span`).textContent = newText;
+                                document.querySelector(`#heading-${entryId} .badge`).textContent = `${newItems.length} Codes`;
+                            } else {
+                                feedbackElement.className = 'alert alert-danger feedback';
+                                feedbackElement.textContent = 'Fehler: ' + data.message;
+                            }
+                        })
+                        .catch(error => {
+                            feedbackElement.style.display = 'block';
+                            feedbackElement.className = 'alert alert-danger feedback';
+                            feedbackElement.textContent = 'Ein Netzwerkfehler ist aufgetreten.';
+                        });
+                }
+
+                // Event Listener für das Bild-Modal (unverändert)
+                imageModal.addEventListener('show.bs.modal', function (event) {
+                    const triggerImage = event.relatedTarget;
+                    const imageSource = triggerImage.getAttribute('src');
+                    modalImage.setAttribute('src', imageSource);
+                });
+            });
+        });
+    </script>
+{% endblock content %}

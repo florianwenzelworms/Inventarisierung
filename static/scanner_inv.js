@@ -1,279 +1,221 @@
-/**Quagga initialiser starts here*/
-
-$(function() {
-
-    let value;
-    let App = {
-        init : function() {
-            Quagga.init(this.state, function(err) {
-                if (err) {
-                    console.log(err);
-                    return;
-                }
-                App.attachListeners();
-                Quagga.start();
-            });
-        },
-        initCameraSelection: function(){
-            let streamLabel = Quagga.CameraAccess.getActiveStreamLabel();
-
-            return Quagga.CameraAccess.enumerateVideoDevices()
-                .then(function(devices) {
-                    function pruneText(text) {
-                        return text.length > 30 ? text.substr(0, 30) : text;
-                    }
-                    var $deviceSelection = document.getElementById("deviceSelection");
-                    while ($deviceSelection.firstChild) {
-                        $deviceSelection.removeChild($deviceSelection.firstChild);
-                    }
-                    devices.forEach(function(device) {
-                        var $option = document.createElement("option");
-                        $option.value = device.deviceId || device.id;
-                        $option.appendChild(document.createTextNode(pruneText(device.label || device.deviceId || device.id)));
-                        $option.selected = streamLabel === device.label;
-                        $deviceSelection.appendChild($option);
-                    });
-                });
-        },
-        querySelectedReaders: function() {
-            return Array.prototype.slice.call(document.querySelectorAll('.readers input[type=checkbox]'))
-                .filter(function(element) {
-                    return !!element.checked;
-                })
-                .map(function(element) {
-                    return element.getAttribute("name");
-                });
-        },
-        attachListeners: function() {
-            let self = this;
-
-            self.initCameraSelection();
-            $(".controls").on("click", "button.stop", function(e) {
-                e.preventDefault();
-                Quagga.stop();
-            });
-
-            $(".controls .reader-config-group").on("change", "input, select", function(e) {
-                e.preventDefault();
-                let $target = $(e.target);
-                // value = $target.attr("type") === "checkbox" ? $target.prop("checked") : $target.val(),
-                value =  $target.attr("type") === "checkbox" ? this.querySelectedReaders() : $target.val();
-                let name = $target.attr("name"),
-                    state = self._convertNameToState(name);
-
-                console.log("Value of "+ state + " changed to " + value);
-                self.setState(state, value);
-            });
-        },
-        _accessByPath: function(obj, path, val) {
-            let parts = path.split('.'),
-                depth = parts.length,
-                setter = (typeof val !== "undefined") ? true : false;
-
-            return parts.reduce(function(o, key, i) {
-                if (setter && (i + 1) === depth) {
-                    if (typeof o[key] === "object" && typeof val === "object") {
-                        Object.assign(o[key], val);
-                    } else {
-                        o[key] = val;
-                    }
-                }
-                return key in o ? o[key] : {};
-            }, obj);
-        },
-        _convertNameToState: function(name) {
-            return name.replace("_", ".").split("-").reduce(function(result, value) {
-                return result + value.charAt(0).toUpperCase() + value.substring(1);
-            });
-        },
-        detachListeners: function() {
-            $(".controls").off("click", "button.stop");
-            $(".controls .reader-config-group").off("change", "input, select");
-        },
-        setState: function(path, value) {
-            let self = this;
-
-            if (typeof self._accessByPath(self.inputMapper, path) === "function") {
-                value = self._accessByPath(self.inputMapper, path)(value);
-            }
-
-            self._accessByPath(self.state, path, value);
-
-            console.log(JSON.stringify(self.state));
-            App.detachListeners();
-            Quagga.stop();
-            App.init();
-        },
-        inputMapper: {
-            inputStream: {
-                constraints: function(value){
-                    if (/^(\d+)x(\d+)$/.test(value)) {
-                        let values = value.split('x');
-                        return {
-                            width: {min: parseInt(values[0])},
-                            height: {min: parseInt(values[1])}
-                        };
-                    }
-                    return {
-                        deviceId: value
-                    };
-                }
-            },
-            numOfWorkers: function(value) {
-                return parseInt(value);
-            },
-            decoder: {
-                readers: function(value) {
-                    if (value === 'ean_extended') {
-                        return [{
-                            format: "ean_reader",
-                            config: {
-                                supplements: [
-                                    'ean_5_reader', 'ean_2_reader'
-                                ]
-                            }
-                        }];
-                    }
-                    console.log("value before format :"+value);
-                    return [{
-                        format: value + "_reader",
-                        config: {}
-                    }];
-                }
-            }
-        },
-        state: {
-            inputStream: {
-                type : "LiveStream",
-                constraints: {
-                    width: {min: 480},
-                    height: {min: 320},
-                    aspectRatio: {min: 1, max: 100},
-                    facingMode: "environment" // or user
-                }
-            },
-            locator: {
-                patchSize: "large",
-                halfSample: true
-            },
-            numOfWorkers: 4,
-            decoder: {
-                readers : ["code_39_reader","code_128_reader"]
-            },
-            locate: true,
-            multiple:true
-        },
-        lastResult : [],
-        mailContent: []
+$(function () {
+    // Zentraler Speicher für den Zustand der aktuellen Session
+    const App = {
+        raum: "",
+        items: [] // Eine Liste von Objekten, z.B. { code: '12345' }
     };
 
-    //value =  App.querySelectedReaders() ;
-    App.init();
+    // --- TEIL 1: FUNKTIONEN ZUR DARSTELLUNG (VIEW) ---
 
-    $(".controls").on("click", "button.start", function(e) {
-        e.preventDefault();
-        App.init();
-    });
+    // Diese Funktion zeichnet die Tabelle basierend auf dem App.items-Array neu
+    function renderTable() {
+        const $tableBody = $("#scan-table-body");
+        $tableBody.empty(); // Leert die bestehende Tabelle
 
-    $(".controls").on("click", "button.reset", function(e) {
-        e.preventDefault();
-        document.getElementsByClassName("thumbnails")[0].innerHTML = "";
-        App.lastResult = [];
-        App.Result = [];
-        App.mailContent = [];
-    });
-
-    $(".controls").on("click", "button.send", function(e) {
-        if (document.getElementById("raumfeld").value === "") {
-            alert("Noch keine Rauminformation eingegeben");
-            return;
-        } else if (App.lastResult.length === 0) {
-            alert("Noch keine Geräte gescannt");
-            return;
+        if (App.items.length === 0) {
+            $tableBody.append('<tr><td colspan="2" class="text-center text-muted">Noch keine Geräte gescannt.</td></tr>');
         } else {
-            if (!App.mailContent[0].hasOwnProperty('Text')) {
-                App.mailContent.unshift({"Text": document.getElementById("raumfeld").value});
-            } else {
-                App.mailContent[0]["Text"] = document.getElementById("raumfeld").value;
-            }
-            jQuery.ajax ({
-                url: "/save",
-                type: "POST",
-                data: JSON.stringify(App.mailContent),
-                dataType: "json",
-                contentType: "application/json; charset=utf-8",
-                complete: function(){
-                    document.getElementsByClassName("thumbnails")[0].innerHTML = "";
-                    document.getElementById("raumfeld").value = "";
-                    App.lastResult = [];
-                    App.mailContent = [];
-                }
+            App.items.forEach((item, index) => {
+                const rowHtml = `
+                    <tr data-index="${index}">
+                        <td>
+                            <input type="text" class="form-control form-control-sm code-input" value="${item.code}" placeholder="Code eingeben...">
+                        </td>
+                        <td>
+                            <button class="btn btn-outline-danger btn-sm delete-row-btn">&times;</button>
+                        </td>
+                    </tr>
+                `;
+                $tableBody.append(rowHtml);
             });
         }
-    });
+    }
 
+    // --- TEIL 2: FUNKTIONEN ZUR DATENVERÄNDERUNG (CONTROLLER) ---
 
-    $.fn.rm = function (el) {
-        let code = el.children[0].innerText;
-        let indexResult = App.lastResult.indexOf(code);
-        let indexMail = App.mailContent.indexOf(code);
-        App.lastResult.splice(indexResult, 1);
-        App.mailContent.splice(indexMail, 1);
-        el.nextSibling.remove();
-        el.remove();
-        console.log(App.lastResult);
+    function addScan(code) {
+        // Prüfe NUR bei nicht-leeren Codes auf Duplikate
+        if (code && App.items.some(item => item.code === code)) {
+            console.log(`Code ${code} ist bereits in der Liste.`);
+            return; // Breche ab, wenn ein Duplikat gescannt wird
+        }
+
+        // Füge den Code hinzu, wenn er neu ist ODER wenn er leer ist (vom Plus-Button)
+        App.items.push({code: code});
+        renderTable(); // Zeichne die Tabelle in jedem Fall neu
+    }
+
+    function updateScan(index, newCode) {
+        if (App.items[index]) {
+            App.items[index].code = newCode;
+        }
+    }
+
+    function deleteScan(index) {
+        App.items.splice(index, 1);
+        renderTable(); // Tabelle neu zeichnen
+    }
+
+    function setRaum(raumName) {
+        App.raum = raumName;
+        $("#raumfeld").val(raumName);
+        $("#raumfeld").css('background-color', '#d4edda').animate({backgroundColor: ''}, 1000);
+    }
+
+    // --- TEIL 3: SCANNER-LOGIK ---
+
+    const html5QrCode = new Html5Qrcode("reader");
+    const config = {fps: 10, qrbox: {width: 250, height: 250}, rememberLastUsedCamera: true};
+
+    const onScanSuccess = (decodedText, decodedResult) => {
+        html5QrCode.pause();
+        try {
+            const qrData = JSON.parse(decodedText);
+            if (qrData && qrData.raum) {
+                setRaum(qrData.raum);
+            } else {
+                addScan(decodedText);
+            }
+        } catch (e) {
+            addScan(decodedText);
+        }
+        setTimeout(() => {
+            if (html5QrCode.getState() !== 'NOT_SCANNING') html5QrCode.resume();
+        }, 1000);
     };
 
+    // --- TEIL 4: EVENT-LISTENER ---
 
-
-
-    Quagga.onProcessed(function(result) {
-        let drawingCtx = Quagga.canvas.ctx.overlay,
-            drawingCanvas = Quagga.canvas.dom.overlay;
-
-        if (result) {
-            if (result.boxes) {
-                drawingCtx.clearRect(0, 0, parseInt(drawingCanvas.getAttribute("width")), parseInt(drawingCanvas.getAttribute("height")));
-                result.boxes.filter(function (box) {
-                    return box !== result.box;
-                }).forEach(function (box) {
-                    Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
-                });
-            }
-
-            if (result.box) {
-                Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "#00F", lineWidth: 2});
-            }
-
-            if (result.codeResult && result.codeResult.code) {
-                Quagga.ImageDebug.drawPath(result.line, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
-            }
-        }
+    // Kamera-Steuerung
+    $(".controls").on("click", "button.start", () => html5QrCode.start({facingMode: "environment"}, config, onScanSuccess, (e) => {
+    }));
+    $(".controls").on("click", "button.stop", () => {
+        if (html5QrCode.isScanning) html5QrCode.stop();
     });
 
-    Quagga.onDetected(function(result) {
-        let code = result.codeResult.code;
+    // Manuelles Hinzufügen
+    $("#add-row-btn").on("click", () => addScan(""));
 
-        if (App.lastResult.includes(code) === false) {
-            let $node = null, canvas = Quagga.canvas.dom.image;
-            $node = $('<div ondblclick=$.fn.rm(this) class="imgWrapper"><img/></div><div class="caption"><h4 class="code"></h4></div>');
-            $node.find("img").attr("src", canvas.toDataURL());
-            $node.find("h4.code").html(code);
-            if (document.getElementById("inventarnummer").childNodes.length === 0) {
-                $("#inventarnummer").prepend($node);
-                App.lastResult.push(code);
-                App.mailContent.push({"code":code, "img":canvas.toDataURL()})
-            } else if (document.getElementById("seriennummer").childNodes.length === 0) {
-                App.lastResult.push(code);
-                $("#seriennummer").prepend($node);
-                App.mailContent.push({"code":code, "img":canvas.toDataURL()})
-            } else if (document.getElementById("macadresse").childNodes.length === 0 && document.getElementById("hardwaretyp").value !== "bildschirm") {
-                App.lastResult.push(code);
-                $("#macadresse").prepend($node);
-                App.mailContent.push({"code":code, "img":canvas.toDataURL()})
-            }
-            console.log(code);
-            console.log(App.lastResult);
-        }
+    // Tabelle bearbeiten (Löschen und Editieren)
+    $("#scan-table-body").on("click", ".delete-row-btn", function () {
+        const index = $(this).closest("tr").data("index");
+        deleteScan(index);
     });
+    $("#scan-table-body").on("change", ".code-input", function () {
+        const index = $(this).closest("tr").data("index");
+        updateScan(index, $(this).val());
+    });
+
+    // Raumfeld manuell ändern
+    $("#raumfeld").on("change", function () {
+        App.raum = $(this).val();
+    });
+
+    // Import-Button
+    $("#start-import-btn").on("click", function () {
+        App.raum = $("#raumfeld").val(); // Sicherstellen, dass der letzte Wert übernommen wird
+        if (!App.raum) {
+            alert("Bitte einen Raum angeben oder scannen.");
+            return;
+        }
+        if (App.items.length === 0) {
+            alert("Bitte mindestens ein Gerät scannen oder hinzufügen.");
+            return;
+        }
+
+        const $feedback = $("#import-feedback");
+        $feedback.html('<div class="spinner-border spinner-border-sm" role="status"></div> Import wird verarbeitet...').removeClass().addClass('alert alert-info');
+
+        // Bereinigen der Items (leere Einträge entfernen)
+        const finalItems = App.items.filter(item => item.code.trim() !== "");
+        const payload = [
+            {"Text": App.raum},
+            ...finalItems
+        ];
+
+        $.ajax({
+            url: "/direct_import",
+            type: "POST",
+            data: JSON.stringify(payload),
+            dataType: "json",
+            contentType: "application/json; charset=utf-8",
+            success: function (response) {
+                if (response.success) {
+                    $feedback.removeClass().addClass('alert alert-success').text(response.message);
+                    // Alles zurücksetzen nach Erfolg
+                    App.items = [];
+                    App.raum = "";
+                    $("#raumfeld").val("");
+                    renderTable();
+                } else {
+                    $feedback.removeClass().addClass('alert alert-danger').text("Fehler: " + response.message);
+                }
+            },
+            error: function () {
+                $feedback.removeClass().addClass('alert alert-danger').text("Ein schwerwiegender Serverfehler ist aufgetreten.");
+            }
+        });
+    });
+    // Import-Button
+    $("#start-import-btn").on("click", function () {
+        App.raum = $("#raumfeld").val(); // Sicherstellen, dass der letzte Wert übernommen wird
+        if (!App.raum) {
+            alert("Bitte einen Raum angeben oder scannen.");
+            return;
+        }
+        if (App.items.length === 0) {
+            alert("Bitte mindestens ein Gerät scannen oder hinzufügen.");
+            return;
+        }
+
+        const $feedback = $("#import-feedback");
+        const $button = $(this);
+        $button.prop('disabled', true); // Button deaktivieren während der Verarbeitung
+        $feedback.html('<div class="spinner-border spinner-border-sm" role="status"></div> Import wird verarbeitet...').removeClass().addClass('alert alert-info');
+
+        const finalItems = App.items.filter(item => item.code.trim() !== "");
+        const payload = [
+            {"Text": App.raum},
+            ...finalItems
+        ];
+
+        // Der Ajax-Call zeigt jetzt auf den neuen Endpunkt '/direct_import'
+        $.ajax({
+            url: "/direct_import", // GEÄNDERT
+            type: "POST",
+            data: JSON.stringify(payload),
+            dataType: "json",
+            contentType: "application/json; charset=utf-8",
+            success: function (response) {
+                // Die detaillierte Antwort vom Server verarbeiten und anzeigen
+                let reportHtml = `<h6>${response.message}</h6>`;
+                if (response.report) {
+                    reportHtml += '<ul>';
+                    if (response.report.successful) response.report.successful.forEach(msg => reportHtml += `<li class="text-success">✔ ${msg}</li>`);
+                    if (response.report.not_found) response.report.not_found.forEach(msg => reportHtml += `<li class="text-warning">⚠ ${msg}</li>`);
+                    if (response.report.errors) response.report.errors.forEach(msg => reportHtml += `<li class="text-danger">✖ ${msg}</li>`);
+                    reportHtml += '</ul>';
+                }
+
+                if (response.success) {
+                    $feedback.removeClass().addClass('alert alert-success').html(reportHtml);
+                    // Alles zurücksetzen nach Erfolg
+                    App.items = [];
+                    App.raum = "";
+                    $("#raumfeld").val("");
+                    renderTable(); // renderTable() ist die Funktion, die die Tabelle zeichnet
+                } else {
+                    $feedback.removeClass().addClass('alert alert-danger').text("Fehler: " + response.message);
+                }
+            },
+            error: function () {
+                $feedback.removeClass().addClass('alert alert-danger').text("Ein schwerwiegender Serverfehler ist aufgetreten.");
+            },
+            complete: function () {
+                $button.prop('disabled', false); // Button wieder aktivieren
+            }
+        });
+    });
+    // Initiales Rendern der leeren Tabelle
+    renderTable();
 });

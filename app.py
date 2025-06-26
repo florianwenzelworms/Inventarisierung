@@ -1,6 +1,6 @@
 from flask import Flask, render_template, flash, redirect, url_for, request, send_file, make_response, jsonify
 from flask_login import LoginManager, UserMixin, login_user, current_user, logout_user
-from flask_mail import Mail
+from flask_mail import Mail, Message
 from forms import LoginForm
 import ldap3
 from credentials import *
@@ -32,7 +32,6 @@ LDAP_PASS = LDAP_PASS
 LDAP_SERVER = LDAP_SERVER
 AD_DOMAIN = AD_DOMAIN
 SEARCH_BASE = SEARCH_BASE
-
 
 # --- Neue Konfiguration für die QR-Code-Erstellung ---
 # Definiert den Ordner, in dem die Bilder gespeichert werden (innerhalb von 'static')
@@ -107,8 +106,8 @@ def get_user_data(username):
                           auto_bind=True) as conn:
         if conn.bind():
             if conn.search('DC=stadt,DC=worms', "(&(sAMAccountName=" + username + "))",
-                               ldap3.SUBTREE,
-                               attributes=['mail', 'memberOf', 'department', 'cn']):
+                           ldap3.SUBTREE,
+                           attributes=['mail', 'memberOf', 'department', 'cn']):
                 cn = conn.entries[0]['cn']
                 mail = conn.entries[0]['mail']
                 department = conn.entries[0]['department']
@@ -157,62 +156,107 @@ def logout():
 
 @app.route('/direct_import', methods=['POST'])
 def direct_import():
-    # 1. Sicherstellen, dass der Benutzer eingeloggt ist
     if not current_user.is_authenticated:
         return jsonify({'success': False, 'message': 'Nicht authentifiziert'}), 401
 
-    # 2. Daten direkt vom Frontend empfangen
+    # 1. Empfange die Datenliste vom Frontend
     data_from_frontend = request.get_json()
     if not data_from_frontend:
         return jsonify({'success': False, 'message': 'Keine Daten erhalten'}), 400
 
-    # Listen für ein detailliertes Feedback
-    report = {
-        'successful': [],
-        'not_found': [],
-        'errors': []
-    }
+    # 2. Extrahiere die Informationen aus der Datenliste
+    room_item = next((item for item in data_from_frontend if 'Text' in item), None)
+    scanned_items = [item['code'] for item in data_from_frontend if 'code' in item]
+    missing_items_payload = next((item for item in data_from_frontend if 'missingAssetIds' in item), None)
+
+    room_name = room_item['Text'] if room_item else None
+    missing_asset_uuids = missing_items_payload['missingAssetIds'] if missing_items_payload else []
+
+    if not room_name:
+        return jsonify({'success': False, 'message': 'Kein Raum in der Anfrage gefunden.'}), 400
+
+    report = {'successful': [], 'removed': [], 'errors': []}
 
     try:
-        # 3. Raum und Geräte-Codes direkt aus den empfangenen Daten extrahieren
-        text_item = next((item for item in data_from_frontend if 'Text' in item), None)
-        room = text_item['Text'] if text_item else "N/A"
-        device_codes = [item['code'] for item in data_from_frontend if 'code' in item]
+        # 3. Hole die Details des Ziel-Standorts
+        location_details = topdesk.getLocation(room_name)
+        if not location_details:
+            raise Exception(f"Ziel-Raum '{room_name}' nicht in TopDesk gefunden.")
 
-        # 4. TopDesk-Logik für jeden Code ausführen (genau wie vorher)
-        for code_id in device_codes:
+        new_location_id = location_details['id']
+        new_branch_id = location_details['branch']['id']
+
+        # 4. VERARBEITUNG: FEHLENDE ASSETS ENTFERNEN (falls ausgewählt)
+        if missing_asset_uuids:
+            print(f"Entferne {len(missing_asset_uuids)} fehlende Assets aus Raum '{room_name}'...")
             try:
-                asset = topdesk.getAsset(code_id)
-                new_room_location = topdesk.getLocation(room)
-
-                if not asset:
-                    report['not_found'].append(f"Asset mit Code '{code_id}'")
-                    continue
-                if not new_room_location:
-                    report['not_found'].append(f"Raum '{room}'")
-                    # Wenn der Raum nicht existiert, brechen wir für alle Geräte ab
-                    # Da sie nicht zugewiesen werden können.
-                    raise Exception(f"Raum '{room}' nicht in TopDesk gefunden.")
-
-                current_assignments = topdesk.getAssignments(asset)
-                is_already_in_correct_room = any(
-                    loc.get('location', {}).get('id') == new_room_location.get('id')
-                    for loc in current_assignments.get('locations', [])
-                )
-
-                if is_already_in_correct_room:
-                    report['successful'].append(f"Asset {code_id} war bereits in Raum {room}.")
+                success = topdesk.unlinkAssignments(new_location_id, missing_asset_uuids)
+                if success:
+                    report['removed'].append(
+                        f"{len(missing_asset_uuids)} fehlende Assets wurden aus Raum '{room_name}' entfernt.")
                 else:
-                    if current_assignments.get('locations'):
-                        old_room_id = current_assignments['locations'][0]['location']['id']
-                        topdesk.unlinkAssignments(old_room_id, asset)
-                    topdesk.addAssignments(asset, new_room_location['branch']['id'], new_room_location['id'])
-                    report['successful'].append(f"Asset {code_id} wurde zu Raum {room} verschoben.")
+                    report['errors'].append("Ein Fehler ist beim gebündelten Entfernen der Assets aufgetreten.")
+            except Exception as e:
+                report['errors'].append(f"Fehler bei der gebündelten Entfernung: {str(e)}")
 
-            except Exception as api_error:
-                report['errors'].append(f"Fehler bei Code {code_id}: {str(api_error)}")
+        # 5. VERARBEITUNG: GESCANnte ASSETS AKTUALISIEREN
+        print(f"Aktualisiere {len(scanned_items)} gescannte Assets für Raum '{room_name}'...")
+        for code in scanned_items:
+            try:
+                asset_uuid = topdesk.getAsset(code)
+                if not asset_uuid:
+                    # --- GEÄNDERT: Logik für nicht gefundene Assets ---
+                    report['errors'].append(
+                        f"Gescanntes Asset '{code}' nicht in TopDesk gefunden. Wird Testweise angelegt")
 
-        # 5. Detailliertes Ergebnis an das Frontend zurückgeben
+                    # Sende eine E-Mail-Benachrichtigung
+                    try:
+                        msg = Message(
+                            subject="Neues Asset zur Anlage in TopDesk",
+                            # Annahme: MAIL_USERNAME ist in Ihrer App-Konfiguration definiert
+                            sender='florian.wenzel@worms.de',
+                            recipients=[str(current_user.mail)]
+                        )
+                        msg.body = f"""
+Hallo {current_user.id},
+
+ein neues, bisher unbekanntes Asset wurde im folgenden Raum gescannt und muss in TopDesk angelegt werden:
+
+Raum: {room_name}
+Asset-Code: {code}
+
+Bitte legen Sie dieses Asset in TopDesk an.
+
+Mit freundlichen Grüßen,
+Ihre Inventar-App
+"""
+                        mail.send(msg)
+                    except Exception as e:
+                        error_msg = f"E-Mail-Benachrichtigung für Asset '{code}' konnte nicht gesendet werden."
+                        print(f"{error_msg}: {e}")
+                        report['errors'].append(error_msg)
+
+                    continue  # Springe zum nächsten Asset in der Schleife
+
+                current_assignments = topdesk.getAssignments(asset_uuid)
+                current_locations = current_assignments.get('locations', [])
+
+                is_correctly_placed = any(
+                    loc.get('location', {}).get('id') == new_location_id for loc in current_locations)
+
+                if is_correctly_placed:
+                    report['successful'].append(f"Asset {code} war bereits korrekt in Raum '{room_name}'.")
+                else:
+                    if current_locations:
+                        old_location_id = current_locations[0]['location']['id']
+                        topdesk.unlinkAssignments(old_location_id, [asset_uuid])
+
+                    topdesk.addAssignments(asset_uuid, new_branch_id, new_location_id)
+                    report['successful'].append(f"Asset {code} wurde erfolgreich zu Raum '{room_name}' verschoben.")
+
+            except Exception as e:
+                report['errors'].append(f"Fehler bei der Aktualisierung von Asset '{code}': {str(e)}")
+
         return jsonify({
             'success': True,
             'message': 'Verarbeitung abgeschlossen.',
@@ -220,7 +264,6 @@ def direct_import():
         }), 200
 
     except Exception as e:
-        # Fängt allgemeine Fehler ab (z.B. wenn der Raum nicht gefunden wurde)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -380,7 +423,7 @@ def get_assets_for_room():
         # 5. Mit der Raum-ID alle zugehörigen Assets abrufen
         # Hier wird die Original-Funktion aus Ihrer topdesk.py aufgerufen
         assets_in_room = topdesk.getLocationAssets(location_id)
-
+        print(assets_in_room)
         # 6. Die gefundene Asset-Liste als JSON an das Frontend zurückgeben
         print(f"{len(assets_in_room)} Assets gefunden.")
         return jsonify({'success': True, 'assets': assets_in_room})

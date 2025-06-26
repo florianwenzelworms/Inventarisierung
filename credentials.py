@@ -8,7 +8,7 @@ MAIL_PORT = 587
 MAIL_USE_TLS = True
 MAIL_USE_SSL = False
 MAIL_USERNAME = 'wenzelf'
-MAIL_PASSWORD = '***********'
+MAIL_PASSWORD = 'Fjbteam123.juni!'
 
 
 # LDAP SETTINGS

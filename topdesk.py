@@ -16,9 +16,12 @@ def getAsset(assetID):
     url = "https://topdesk.worms.de/tas/api/assetmgmt/assets?searchTerm=%s" % assetID
     response = requests.request("GET", url, auth=auth, proxies=proxies)
     if response.status_code == 200:
-        for asset in json.loads(response.text)['dataSet']:
-            if asset['text'] == assetID:
-                return asset['id']
+        if json.loads(response.text)['dataSet']:
+            for asset in json.loads(response.text)['dataSet']:
+                if asset['text'] == assetID:
+                    return asset['id']
+        else:
+            return False
 
 
 def getAssignments(assetID):
@@ -28,12 +31,12 @@ def getAssignments(assetID):
         return json.loads(response.text)
 
 
-def unlinkAssignments(roomID, assetID):
+def unlinkAssignments(roomID, assetIDs):
+    print(roomID)
+    print(assetIDs)
     url = "https://topdesk.worms.de/tas/api/assetmgmt/assets/unlink/location/%s" % roomID
     payload = json.dumps({
-        "assetIds": [
-            assetID
-        ]
+        "assetIds": assetIDs
     })
     headers = {
         'Content-Type': 'application/json'
@@ -83,7 +86,7 @@ def getLocationAssets(location):
         assets = []
         for asset in data:
             print(asset)
-            assets.append(getAssetInfo(asset['id'])['data']['unid'])
+            assets.append(getAssetInfo(asset['id'])['data'])
         return assets
 
 

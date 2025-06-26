@@ -21,7 +21,6 @@
             <div id="result_strip" class="mb-3" style="max-height: 250px; overflow-y: auto;">
                 <ul class="thumbnails list-group"></ul>
             </div>
-            <!-- WIEDERHERGESTELLT: Der Bereich für den Import-Vorgang -->
              <div class="d-grid">
                 <button id="start-import-btn" class="btn btn-success btn-lg">Import nach TopDesk starten</button>
             </div>
@@ -36,36 +35,57 @@
         <table class="table table-sm table-bordered">
             <thead class="table-dark sticky-top">
                 <tr>
-                    <th>Asset Name</th>
-                    <th>Seriennummer</th>
-                    <th>Inventarnr.</th>
+                    <th>ID</th>
+                    <th>Beschreibung</th>
                     <th>Status</th>
                 </tr>
             </thead>
             <tbody id="asset-checklist-body">
                 <tr>
-                    <td colspan="4" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td>
+                    <td colspan="3" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td>
                 </tr>
             </tbody>
         </table>
     </div>
 </div>
 
+<!-- Modal für die Import-Bestätigung -->
+<div class="modal fade" id="importConfirmModal" tabindex="-1" aria-labelledby="importConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="importConfirmModalLabel">Bestätigung erforderlich</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Es fehlen <strong id="missing-assets-count"></strong> Assets aus der Checkliste.</p>
+        <p>Wie möchten Sie fortfahren?</p>
+        <ul id="missing-assets-list" class="list-group mb-3" style="max-height: 150px; overflow-y: auto;">
+            <!-- Fehlende Assets werden hier eingefügt -->
+        </ul>
+        <div class="d-grid gap-2">
+            <button type="button" id="import-update-only-btn" class="btn btn-primary">Nur gefundene Assets aktualisieren</button>
+            <button type="button" id="import-remove-missing-btn" class="btn btn-danger">Fehlende Assets aus Raum entfernen & aktualisieren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Skripte am Ende der Datei -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Das gesamte JavaScript ist jetzt hier integriert
 $(function() {
-    // Zentraler Speicher für den Zustand
     const App = {
         raum: "",
-        scannedItems: [], // Enthält die Codes der gescannten Geräte
-        checklist: [],    // Enthält die Asset-Objekte, die im Raum sein sollten
-        scannerState: null
+        scannedItems: [],
+        checklist: [],
+        missingAssets: [],
+        scannerState: null,
+        importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal'))
     };
-
-    // --- TEIL 1: FUNKTIONEN ZUR DARSTELLUNG (VIEW) ---
 
     function renderScannedItems() {
         const $list = $(".thumbnails");
@@ -76,8 +96,8 @@ $(function() {
         }
         App.scannedItems.forEach(code => {
             let $li = $(`
-                <li class="list-group-item thumbnail-item d-flex justify-content-between align-items-center">
-                    <span class="code">${code}</span>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>${code}</span>
                     <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeScan('${code}')">&times;</button>
                 </li>
             `);
@@ -87,29 +107,38 @@ $(function() {
 
     function renderChecklistTable() {
         const $tableBody = $("#asset-checklist-body");
+        const $feedback = $("#import-feedback");
         $tableBody.empty();
+        $feedback.empty().hide();
+
         if (App.checklist.length === 0) {
-            $tableBody.append('<tr><td colspan="4" class="text-center text-muted">Für diesen Raum sind keine Assets in TopDesk hinterlegt oder der Raum wurde nicht gefunden.</td></tr>');
+            $tableBody.append('<tr><td colspan="3" class="text-center text-muted">Für diesen Raum sind keine Assets in TopDesk hinterlegt.</td></tr>');
             return;
         }
+
+        let foundCount = 0;
         App.checklist.forEach(asset => {
-            const assetNumber = asset?.number || 'N/A';
-            const serialNumber = asset?.optionalFields?.serialNumber || 'N/A';
-            const isScanned = App.scannedItems.includes(assetNumber) || (serialNumber !== 'N/A' && App.scannedItems.includes(serialNumber));
+            const inventoryNumber = asset?.name || 'N/A';
+            const description = asset['@@summary'] || 'N/A';
+            const isScanned = App.scannedItems.includes(inventoryNumber);
+
+            if (isScanned) foundCount++;
+
             const rowClass = isScanned ? 'table-success' : 'table-danger';
             const rowHtml = `
-                <tr class="${rowClass}" data-asset-number="${assetNumber}">
-                    <td>${asset?.name || 'N/A'}</td>
-                    <td>${serialNumber}</td>
-                    <td>${assetNumber}</td>
+                <tr class="${rowClass}">
+                    <td>${inventoryNumber}</td>
+                    <td>${description}</td>
                     <td>${isScanned ? 'Gefunden ✔' : 'Fehlt ✖'}</td>
                 </tr>
             `;
             $tableBody.append(rowHtml);
         });
-    }
 
-    // --- TEIL 2: FUNKTIONEN ZUR DATENVERÄNDERUNG (CONTROLLER) ---
+        if (App.checklist.length > 0 && foundCount === App.checklist.length) {
+            $feedback.removeClass().addClass('alert alert-success').text('Alle Assets in der Checkliste gefunden!').show();
+        }
+    }
 
     function addScannedItem(code) {
         if (code && !App.scannedItems.includes(code)) {
@@ -128,118 +157,46 @@ $(function() {
     function fetchChecklist(roomName) {
         if (!roomName) {
             App.checklist = [];
-            $("#asset-checklist-body").html('<tr><td colspan="4" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
+            $("#asset-checklist-body").html('<tr><td colspan="3" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
             return;
         }
         const $tableBody = $("#asset-checklist-body");
-        $tableBody.html('<tr><td colspan="4" class="text-center"><div class="spinner-border spinner-border-sm"></div> Lade Asset-Liste für Raum...</td></tr>');
+        $tableBody.html('<tr><td colspan="3" class="text-center"><div class="spinner-border spinner-border-sm"></div> Lade...</td></tr>');
         $.ajax({
-            url: `/get_assets_for_room?room=${encodeURIComponent(roomName)}`,
-            type: "GET",
+            url: `/get_assets_for_room?room=${encodeURIComponent(roomName)}`, type: "GET",
             success: function(response) {
-                if (response.success) {
-                    App.checklist = response.assets || [];
-                } else {
-                    App.checklist = [];
-                    $tableBody.html(`<tr><td colspan="4" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
+                App.checklist = response.success ? (response.assets || []) : [];
+                if (!response.success) {
+                    $tableBody.html(`<tr><td colspan="3" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
                 }
                 renderChecklistTable();
             },
             error: function() {
                 App.checklist = [];
-                $tableBody.html('<tr><td colspan="4" class="text-center text-danger">Serverfehler beim Laden der Asset-Liste.</td></tr>');
+                $tableBody.html('<tr><td colspan="3" class="text-center text-danger">Serverfehler.</td></tr>');
             }
         });
     }
 
-    // --- TEIL 3: SCANNER-LOGIK ---
-    const html5QrCode = new Html5Qrcode("reader");
-    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-
-    const onScanSuccess = (decodedText, decodedResult) => {
-        if (App.scannerState === 'PAUSED') return;
-        App.scannerState = 'PAUSED';
-        html5QrCode.pause();
-
-        const codeFormat = decodedResult.result.format.formatName;
-
-        if (codeFormat === "QR_CODE") {
-            // Wenn es ein QR-Code ist, wird er IMMER als Raum behandelt.
-            let roomName = decodedText;
-            try {
-                // Versuch, ein spezifisches .name Feld zu finden
-                const qrData = JSON.parse(decodedText);
-                if (qrData && qrData.name) {
-                    roomName = qrData.name;
-                }
-            } catch (e) {
-                // Wenn es kein JSON ist, wird der rohe Text als Raumname verwendet.
-            }
-            App.raum = roomName;
-            $("#raumfeld").val(App.raum);
-            fetchChecklist(App.raum);
-        } else {
-            // Alle anderen Formate (Code_128, etc.) werden als Geräte hinzugefügt.
-            addScannedItem(decodedText);
-        }
-
-        setTimeout(() => {
-            if (html5QrCode.getState() === Html5QrcodeScannerState.PAUSED) {
-                html5QrCode.resume();
-            }
-            App.scannerState = 'SCANNING';
-        }, 1000);
-    };
-
-    // --- TEIL 4: EVENT-LISTENER ---
-    $(".controls").on("click", "button.start", () => {
-        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {});
-        App.scannerState = 'SCANNING';
-    });
-    $(".controls").on("click", "button.stop", () => {
-        if (html5QrCode.isScanning) {
-            html5QrCode.stop().then(() => { App.scannerState = 'STOPPED'; });
-        }
-    });
-
-    $("#raumfeld").on("keypress", function(e) {
-        if (e.which === 13) {
-            const newRoom = $(this).val();
-            if (App.raum !== newRoom) {
-                App.raum = newRoom;
-                fetchChecklist(App.raum);
-            }
-        }
-    });
-
-    $(".controls").on("click", "button.reset", function() {
-        App.raum = "";
-        App.scannedItems = [];
-        App.checklist = [];
-        $("#raumfeld").val("");
-        renderScannedItems();
-        $("#asset-checklist-body").html('<tr><td colspan="4" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
-        $("#import-feedback").empty().removeClass();
-    });
-
-    // WIEDERHERGESTELLT: Event-Listener für den Import-Button
-    $("#start-import-btn").on("click", function() {
-        App.raum = $("#raumfeld").val();
-        if (!App.raum) {
-            alert("Bitte einen Raum angeben oder scannen.");
-            return;
-        }
-        if (App.scannedItems.length === 0) {
-            alert("Keine Geräte zum Importieren gescannt.");
-            return;
-        }
-
+    function runImport(withRemove) {
+        App.importConfirmModal.hide();
         const $feedback = $("#import-feedback");
-        const $button = $(this);
+        const $button = $("#start-import-btn");
         $button.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Importiere...');
         $feedback.html('').removeClass().addClass('alert alert-info').text('Verarbeitung läuft...');
 
         const payload = [{"Text": App.raum}, ...App.scannedItems.map(code => ({"code": code}))];
+
+        if (withRemove) {
+            // KORRIGIERT: Sucht nach asset.id ODER asset.unid und filtert leere Werte heraus.
+            const missingIds = App.missingAssets
+                .map(asset => asset.id || asset.unid) // Versucht, die ID aus 'id' oder 'unid' zu lesen
+                .filter(id => id); // Stellt sicher, dass keine null/undefined Werte gesendet werden
+
+            if (missingIds.length > 0) {
+                payload.push({"missingAssetIds": missingIds});
+            }
+        }
 
         $.ajax({
             url: "/direct_import",
@@ -252,40 +209,90 @@ $(function() {
                 if (response.report) {
                     reportHtml += '<ul class="list-unstyled">';
                     response.report.successful?.forEach(msg => reportHtml += `<li class="text-success small">✔ ${msg}</li>`);
-                    response.report.not_found?.forEach(msg => reportHtml += `<li class="text-warning small">⚠ ${msg}</li>`);
+                    response.report.removed?.forEach(msg => reportHtml += `<li class="text-warning small">➖ ${msg}</li>`);
                     response.report.errors?.forEach(msg => reportHtml += `<li class="text-danger small">✖ ${msg}</li>`);
                     reportHtml += '</ul>';
                 }
-
+                $feedback.removeClass('alert-info').addClass(response.success ? 'alert alert-success' : 'alert alert-danger').html(reportHtml);
                 if (response.success) {
-                    $feedback.removeClass('alert-info').addClass('alert alert-success').html(reportHtml);
-                    // Reset nach Erfolg
-                    setTimeout(() => $(".controls button.reset").trigger("click"), 3000);
-                } else {
-                    $feedback.removeClass('alert-info').addClass('alert alert-danger').html("<strong>Fehler:</strong> " + response.message);
+                    setTimeout(() => $(".controls button.reset").trigger("click"), 4000);
                 }
             },
             error: function() {
-                $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Ein schwerwiegender Serverfehler ist aufgetreten.");
+                $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Schwerwiegender Serverfehler.");
             },
             complete: function() {
                 $button.prop('disabled', false).text('Import nach TopDesk starten');
             }
         });
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
+    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    const onScanSuccess = (decodedText, decodedResult) => {
+        if (App.scannerState === 'PAUSED') return;
+        App.scannerState = 'PAUSED';
+        html5QrCode.pause();
+        const codeFormat = decodedResult.result.format.formatName;
+        if (codeFormat === "QR_CODE") {
+            let roomName = decodedText;
+            try {
+                const qrData = JSON.parse(decodedText);
+                if (qrData && qrData.name) roomName = qrData.name;
+            } catch (e) {}
+            App.raum = roomName;
+            $("#raumfeld").val(App.raum);
+            fetchChecklist(App.raum);
+        } else {
+            addScannedItem(decodedText);
+        }
+        setTimeout(() => {
+            if (html5QrCode.getState() === Html5QrcodeScannerState.PAUSED) html5QrCode.resume();
+            App.scannerState = 'SCANNING';
+        }, 1000);
+    };
+
+    $(".controls").on("click", "button.start", () => html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {}));
+    $(".controls").on("click", "button.stop", () => { if (html5QrCode.isScanning) html5QrCode.stop().then(() => App.scannerState = 'STOPPED'); });
+    $("#raumfeld").on("keypress", e => { if (e.which === 13) { App.raum = $(e.target).val(); fetchChecklist(App.raum); }});
+    $(".controls").on("click", "button.reset", () => {
+        App.raum = ""; App.scannedItems = []; App.checklist = [];
+        $("#raumfeld").val(""); renderScannedItems();
+        $("#asset-checklist-body").html('<tr><td colspan="3" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
+        $("#import-feedback").empty().hide();
     });
 
-    renderScannedItems();
+    $("#start-import-btn").on("click", function() {
+        App.raum = $("#raumfeld").val();
+        if (!App.raum) {
+            alert("Bitte zuerst einen gültigen Raum scannen oder eingeben.");
+            return;
+        }
 
-    // --- NEU: Kamera direkt beim Laden der Seite starten ---
-    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {})
-        .then(() => {
-            console.log("Kamera automatisch gestartet.");
-            App.scannerState = 'SCANNING';
-        })
-        .catch(err => {
-            console.error("Automatischer Kamerastart fehlgeschlagen. Möglicherweise sind keine Berechtigungen erteilt.", err);
-            $("#reader").html('<div class="alert alert-warning p-2">Kamerastart fehlgeschlagen. Bitte Berechtigungen erteilen und manuell auf "Kamera Start" klicken.</div>');
+        App.missingAssets = App.checklist.filter(asset => {
+            const inventoryNumber = asset?.name || 'N/A';
+            return !App.scannedItems.includes(inventoryNumber);
         });
+
+        if (App.missingAssets.length === 0) {
+            runImport(false);
+        } else {
+            $("#missing-assets-count").text(App.missingAssets.length);
+            const $list = $("#missing-assets-list");
+            $list.empty();
+            App.missingAssets.forEach(asset => {
+                $list.append(`<li class="list-group-item list-group-item-danger">${asset.name} - ${asset['@@summary']}</li>`);
+            });
+            App.importConfirmModal.show();
+        }
+    });
+
+    $("#import-update-only-btn").on("click", () => runImport(false));
+    $("#import-remove-missing-btn").on("click", () => runImport(true));
+
+    renderScannedItems();
+    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {})
+        .catch(err => $("#reader").html('<div class="alert alert-warning">Automatischer Kamerastart fehlgeschlagen.</div>'));
 });
 </script>
 {% endblock content %}

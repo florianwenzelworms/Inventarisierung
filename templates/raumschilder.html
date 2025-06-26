@@ -18,6 +18,7 @@
         <div class="card-body">
             {% if rooms %}
             <div class="table-responsive">
+                <!-- GEÄNDERT: 'align-middle' zentriert den Inhalt der Zeilen vertikal -->
                 <table class="table table-striped table-hover table-sm align-middle">
                     <thead>
                         <tr>
@@ -87,10 +88,28 @@
     </div>
 </div>
 
+<!-- STIL-ANPASSUNGEN -->
+<style>
+    /* Kleinere Vorschaubilder, um die Zeilenhöhe zu reduzieren */
+    .qr-preview {
+        max-height: 40px;
+        max-width: 40px;
+        object-fit: contain;
+        cursor: pointer;
+        transition: transform 0.2s ease-in-out;
+    }
+    .qr-preview:hover {
+        transform: scale(1.2);
+    }
+    /* Stil für das vergrößerte Bild im Modal */
+    #modalImage {
+        max-height: 80vh;
+        width: auto;
+        max-width: 100%;
+    }
+</style>
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<!-- FIX: Bootstrap JS (wird für Modals, etc. benötigt) hinzugefügt -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- Hinzufügen der JSZip Bibliothek für ZIP-Downloads -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 $(document).ready(function() {
@@ -127,7 +146,6 @@ $(document).ready(function() {
         $feedbackArea.show().removeClass().addClass('alert alert-info').html('QR-Codes werden erstellt...');
 
         $.ajax({
-            // ... (AJAX call remains the same)
             url: "/generate_qr_codes", type: "POST", data: JSON.stringify(roomsData), contentType: "application/json; charset=utf-8", dataType: "json",
             success: function(response) {
                 let feedbackHtml = `<strong>${response.message}</strong>`;
@@ -139,7 +157,6 @@ $(document).ready(function() {
 
                 if (response.success) {
                     $feedbackArea.removeClass('alert-info').addClass('alert-success').html(feedbackHtml);
-                    // Reload page after success to show new previews and statuses
                     setTimeout(() => window.location.reload(), 1500);
                 } else {
                     $feedbackArea.removeClass('alert-info').addClass('alert-danger').html(feedbackHtml);
@@ -218,7 +235,6 @@ $(document).ready(function() {
         generateQrCodes(allRooms, $(this));
     });
 
-    // Download Buttons
     $('tbody').on('click', '.download-single-btn', function() {
         const $row = $(this).closest('tr');
         const $img = $row.find('.qr-preview');
@@ -238,7 +254,6 @@ $(document).ready(function() {
         downloadAsZip(allRows, 'Raumschilder_Alle.zip', $(this));
     });
 
-    // "Alle auswählen"-Checkbox
     $('#select-all-checkbox').on('change', function() {
         $('.room-checkbox').prop('checked', $(this).prop('checked'));
     });

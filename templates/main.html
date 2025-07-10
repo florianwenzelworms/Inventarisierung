@@ -13,7 +13,8 @@
             <div class="controls mt-3">
                 <button class="btn btn-info start">Kamera Start</button>
                 <button class="btn btn-danger stop">Kamera Stop</button>
-                <button class="btn btn-warning reset">Reset</button>
+                <button class="btn btn-outline-info" id="torch-btn" style="display: none;">Blitz</button>
+                <button class="btn btn-warning reset float-end">Reset</button>
             </div>
         </div>
         <div class="col-md-6">
@@ -24,6 +25,7 @@
              <div class="d-grid">
                 <button id="start-import-btn" class="btn btn-success btn-lg">Import nach TopDesk starten</button>
             </div>
+            <!-- Dieses Feedback-Feld wird jetzt nicht mehr direkt verwendet -->
             <div id="import-feedback" class="mt-2"></div>
         </div>
     </div>
@@ -84,8 +86,28 @@ $(function() {
         checklist: [],
         missingAssets: [],
         scannerState: null,
-        importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal'))
+        importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal')),
+        audioContext: null,
+        videoTrack: null,
+        torchOn: false
     };
+
+    function playBeep() {
+        try {
+            if (!App.audioContext) App.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = App.audioContext.createOscillator();
+            const gainNode = App.audioContext.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(App.audioContext.destination);
+            gainNode.gain.setValueAtTime(0, App.audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, App.audioContext.currentTime + 0.01);
+            oscillator.frequency.setValueAtTime(880, App.audioContext.currentTime);
+            oscillator.type = 'square';
+            oscillator.start(App.audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.00001, App.audioContext.currentTime + 0.1);
+            oscillator.stop(App.audioContext.currentTime + 0.1);
+        } catch(e) { console.error("Beep konnte nicht abgespielt werden:", e); }
+    }
 
     function renderScannedItems() {
         const $list = $(".thumbnails");
@@ -95,12 +117,7 @@ $(function() {
             return;
         }
         App.scannedItems.forEach(code => {
-            let $li = $(`
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <span>${code}</span>
-                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeScan('${code}')">&times;</button>
-                </li>
-            `);
+            let $li = $(`<li class="list-group-item d-flex justify-content-between align-items-center"><span>${code}</span><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeScan('${code}')">&times;</button></li>`);
             $list.prepend($li);
         });
     }
@@ -110,31 +127,20 @@ $(function() {
         const $feedback = $("#import-feedback");
         $tableBody.empty();
         $feedback.empty().hide();
-
         if (App.checklist.length === 0) {
             $tableBody.append('<tr><td colspan="3" class="text-center text-muted">Für diesen Raum sind keine Assets in TopDesk hinterlegt.</td></tr>');
             return;
         }
-
         let foundCount = 0;
         App.checklist.forEach(asset => {
             const inventoryNumber = asset?.name || 'N/A';
             const description = asset['@@summary'] || 'N/A';
             const isScanned = App.scannedItems.includes(inventoryNumber);
-
             if (isScanned) foundCount++;
-
             const rowClass = isScanned ? 'table-success' : 'table-danger';
-            const rowHtml = `
-                <tr class="${rowClass}">
-                    <td>${inventoryNumber}</td>
-                    <td>${description}</td>
-                    <td>${isScanned ? 'Gefunden ✔' : 'Fehlt ✖'}</td>
-                </tr>
-            `;
+            const rowHtml = `<tr class="${rowClass}"><td>${inventoryNumber}</td><td>${description}</td><td>${isScanned ? 'Gefunden ✔' : 'Fehlt ✖'}</td></tr>`;
             $tableBody.append(rowHtml);
         });
-
         if (App.checklist.length > 0 && foundCount === App.checklist.length) {
             $feedback.removeClass().addClass('alert alert-success').text('Alle Assets in der Checkliste gefunden!').show();
         }
@@ -166,9 +172,7 @@ $(function() {
             url: `/get_assets_for_room?room=${encodeURIComponent(roomName)}`, type: "GET",
             success: function(response) {
                 App.checklist = response.success ? (response.assets || []) : [];
-                if (!response.success) {
-                    $tableBody.html(`<tr><td colspan="3" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
-                }
+                if (!response.success) $tableBody.html(`<tr><td colspan="3" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
                 renderChecklistTable();
             },
             error: function() {
@@ -180,48 +184,29 @@ $(function() {
 
     function runImport(withRemove) {
         App.importConfirmModal.hide();
-        const $feedback = $("#import-feedback");
         const $button = $("#start-import-btn");
         $button.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Importiere...');
-        $feedback.html('').removeClass().addClass('alert alert-info').text('Verarbeitung läuft...');
-
         const payload = [{"Text": App.raum}, ...App.scannedItems.map(code => ({"code": code}))];
-
         if (withRemove) {
-            // KORRIGIERT: Sucht nach asset.id ODER asset.unid und filtert leere Werte heraus.
-            const missingIds = App.missingAssets
-                .map(asset => asset.id || asset.unid) // Versucht, die ID aus 'id' oder 'unid' zu lesen
-                .filter(id => id); // Stellt sicher, dass keine null/undefined Werte gesendet werden
-
-            if (missingIds.length > 0) {
-                payload.push({"missingAssetIds": missingIds});
-            }
+            const missingIds = App.missingAssets.map(asset => asset.id || asset.unid).filter(id => id);
+            if (missingIds.length > 0) payload.push({"missingAssetIds": missingIds});
         }
 
+        // GEÄNDERT: Die Logik nach dem AJAX-Aufruf
         $.ajax({
-            url: "/direct_import",
-            type: "POST",
-            data: JSON.stringify(payload),
-            contentType: "application/json; charset=utf-8",
-            dataType: "json",
+            url: "/direct_import", type: "POST", data: JSON.stringify(payload), contentType: "application/json; charset=utf-8", dataType: "json",
             success: function(response) {
-                let reportHtml = `<h6>${response.message}</h6>`;
-                if (response.report) {
-                    reportHtml += '<ul class="list-unstyled">';
-                    response.report.successful?.forEach(msg => reportHtml += `<li class="text-success small">✔ ${msg}</li>`);
-                    response.report.removed?.forEach(msg => reportHtml += `<li class="text-warning small">➖ ${msg}</li>`);
-                    response.report.errors?.forEach(msg => reportHtml += `<li class="text-danger small">✖ ${msg}</li>`);
-                    reportHtml += '</ul>';
-                }
-                $feedback.removeClass('alert-info').addClass(response.success ? 'alert alert-success' : 'alert alert-danger').html(reportHtml);
-                if (response.success) {
-                    setTimeout(() => $(".controls button.reset").trigger("click"), 4000);
+                // Wenn das Backend erfolgreich war und eine URL sendet, leiten wir weiter.
+                if (response.success && response.redirect_url) {
+                    window.location.href = response.redirect_url;
+                } else {
+                    // Falls etwas schiefgeht, zeigen wir eine Fehlermeldung an.
+                    alert("Ein Fehler ist aufgetreten: " + (response.message || "Unbekannter Fehler"));
+                    $button.prop('disabled', false).text('Import nach TopDesk starten');
                 }
             },
             error: function() {
-                $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Schwerwiegender Serverfehler.");
-            },
-            complete: function() {
+                alert("Ein schwerwiegender Serverfehler ist aufgetreten.");
                 $button.prop('disabled', false).text('Import nach TopDesk starten');
             }
         });
@@ -233,6 +218,7 @@ $(function() {
         if (App.scannerState === 'PAUSED') return;
         App.scannerState = 'PAUSED';
         html5QrCode.pause();
+        playBeep();
         const codeFormat = decodedResult.result.format.formatName;
         if (codeFormat === "QR_CODE") {
             let roomName = decodedText;
@@ -252,10 +238,41 @@ $(function() {
         }, 1000);
     };
 
-    $(".controls").on("click", "button.start", () => html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {}));
-    $(".controls").on("click", "button.stop", () => { if (html5QrCode.isScanning) html5QrCode.stop().then(() => App.scannerState = 'STOPPED'); });
+    function startCamera() {
+        $("#reader").html("");
+        if (html5QrCode.isScanning) return;
+        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (errorMessage) => {})
+        .then(() => {
+            App.scannerState = 'SCANNING';
+            const videoElement = document.getElementById("reader").querySelector("video");
+            if (videoElement && videoElement.srcObject) {
+                const track = videoElement.srcObject.getVideoTracks()[0];
+                if (track) {
+                    const capabilities = track.getCapabilities();
+                    if (capabilities.torch) { App.videoTrack = track; $("#torch-btn").show(); }
+                }
+            }
+        }).catch((err) => { $("#reader").html(`<div class="alert alert-danger p-2"><b>Kamerafehler:</b> ${err}.</div>`); });
+    }
+
+    function stopCamera() {
+        if (html5QrCode.isScanning) {
+            if (App.torchOn && App.videoTrack) {
+                App.videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+                App.torchOn = false;
+            }
+            html5QrCode.stop().then(() => { App.scannerState = 'STOPPED'; App.videoTrack = null; $("#torch-btn").hide(); });
+        }
+    }
+
+    $(".controls").on("click", "button.start", startCamera);
+    $(".controls").on("click", "button.stop", stopCamera);
+    $("#torch-btn").on("click", function() {
+        if (App.videoTrack) { App.torchOn = !App.torchOn; App.videoTrack.applyConstraints({ advanced: [{ torch: App.torchOn }] }); }
+    });
     $("#raumfeld").on("keypress", e => { if (e.which === 13) { App.raum = $(e.target).val(); fetchChecklist(App.raum); }});
     $(".controls").on("click", "button.reset", () => {
+        stopCamera();
         App.raum = ""; App.scannedItems = []; App.checklist = [];
         $("#raumfeld").val(""); renderScannedItems();
         $("#asset-checklist-body").html('<tr><td colspan="3" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
@@ -264,25 +281,15 @@ $(function() {
 
     $("#start-import-btn").on("click", function() {
         App.raum = $("#raumfeld").val();
-        if (!App.raum) {
-            alert("Bitte zuerst einen gültigen Raum scannen oder eingeben.");
-            return;
-        }
-
-        App.missingAssets = App.checklist.filter(asset => {
-            const inventoryNumber = asset?.name || 'N/A';
-            return !App.scannedItems.includes(inventoryNumber);
-        });
-
+        if (!App.raum) { alert("Bitte zuerst einen gültigen Raum scannen oder eingeben."); return; }
+        App.missingAssets = App.checklist.filter(asset => !App.scannedItems.includes(asset?.name || 'N/A'));
         if (App.missingAssets.length === 0) {
             runImport(false);
         } else {
             $("#missing-assets-count").text(App.missingAssets.length);
             const $list = $("#missing-assets-list");
             $list.empty();
-            App.missingAssets.forEach(asset => {
-                $list.append(`<li class="list-group-item list-group-item-danger">${asset.name} - ${asset['@@summary']}</li>`);
-            });
+            App.missingAssets.forEach(asset => $list.append(`<li class="list-group-item list-group-item-danger">${asset.name} - ${asset['@@summary']}</li>`));
             App.importConfirmModal.show();
         }
     });
@@ -291,8 +298,6 @@ $(function() {
     $("#import-remove-missing-btn").on("click", () => runImport(true));
 
     renderScannedItems();
-    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {})
-        .catch(err => $("#reader").html('<div class="alert alert-warning">Automatischer Kamerastart fehlgeschlagen.</div>'));
 });
 </script>
 {% endblock content %}

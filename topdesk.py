@@ -97,6 +97,13 @@ def getAssetInfo(asset):
         return json.loads(response.text)
 
 
+def getTemplates():
+    url = "https://topdesk.worms.de/tas/api/assetmgmt/templates"
+    response = requests.request("GET", url, auth=auth, proxies=proxies)
+    if response.status_code == 200:
+        return json.loads(response.text)
+
+
 if __name__ == "__main__":
     # # print(getAsset('016918'))
     # # print(getAssignments(getAsset('016918'))['locations'][0]['location']['name'])

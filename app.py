@@ -4,12 +4,14 @@ from flask_mail import Mail, Message
 from forms import LoginForm
 import ldap3
 from credentials import *
-from sqlalchemy.orm.attributes import flag_modified
 import topdesk
 import json
 import os
+import io
+import csv
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
+
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = SECRET_KEY
@@ -159,12 +161,10 @@ def direct_import():
     if not current_user.is_authenticated:
         return jsonify({'success': False, 'message': 'Nicht authentifiziert'}), 401
 
-    # 1. Empfange die Datenliste vom Frontend
     data_from_frontend = request.get_json()
     if not data_from_frontend:
         return jsonify({'success': False, 'message': 'Keine Daten erhalten'}), 400
 
-    # 2. Extrahiere die Informationen aus der Datenliste
     room_item = next((item for item in data_from_frontend if 'Text' in item), None)
     scanned_items = [item['code'] for item in data_from_frontend if 'code' in item]
     missing_items_payload = next((item for item in data_from_frontend if 'missingAssetIds' in item), None)
@@ -173,12 +173,13 @@ def direct_import():
     missing_asset_uuids = missing_items_payload['missingAssetIds'] if missing_items_payload else []
 
     if not room_name:
-        return jsonify({'success': False, 'message': 'Kein Raum in der Anfrage gefunden.'}), 400
+        flash("Import fehlgeschlagen: Kein Raum angegeben.", "danger")
+        return jsonify({'success': False, 'redirect_url': url_for('home')})
 
-    report = {'successful': [], 'removed': [], 'errors': []}
+    # Der Report wird jetzt verwendet, um die Asset-Codes/IDs zu sammeln
+    report = {'successful': [], 'removed': [], 'errors': [], 'info': []}
 
     try:
-        # 3. Hole die Details des Ziel-Standorts
         location_details = topdesk.getLocation(room_name)
         if not location_details:
             raise Exception(f"Ziel-Raum '{room_name}' nicht in TopDesk gefunden.")
@@ -186,85 +187,95 @@ def direct_import():
         new_location_id = location_details['id']
         new_branch_id = location_details['branch']['id']
 
-        # 4. VERARBEITUNG: FEHLENDE ASSETS ENTFERNEN (falls ausgewählt)
+        # VERARBEITUNG: FEHLENDE ASSETS ENTFERNEN
         if missing_asset_uuids:
-            print(f"Entferne {len(missing_asset_uuids)} fehlende Assets aus Raum '{room_name}'...")
             try:
                 success = topdesk.unlinkAssignments(new_location_id, missing_asset_uuids)
                 if success:
-                    report['removed'].append(
-                        f"{len(missing_asset_uuids)} fehlende Assets wurden aus Raum '{room_name}' entfernt.")
+                    # Speichert die Liste der entfernten UUIDs für den Report
+                    report['removed'] = missing_asset_uuids
                 else:
                     report['errors'].append("Ein Fehler ist beim gebündelten Entfernen der Assets aufgetreten.")
             except Exception as e:
                 report['errors'].append(f"Fehler bei der gebündelten Entfernung: {str(e)}")
 
-        # 5. VERARBEITUNG: GESCANnte ASSETS AKTUALISIEREN
-        print(f"Aktualisiere {len(scanned_items)} gescannte Assets für Raum '{room_name}'...")
+        # VERARBEITUNG: GESCANnte ASSETS AKTUALISIEREN
         for code in scanned_items:
             try:
                 asset_uuid = topdesk.getAsset(code)
                 if not asset_uuid:
-                    # --- GEÄNDERT: Logik für nicht gefundene Assets ---
-                    report['errors'].append(
-                        f"Gescanntes Asset '{code}' nicht in TopDesk gefunden. Wird Testweise angelegt")
-
-                    # Sende eine E-Mail-Benachrichtigung
+                    report['errors'].append(f"Asset '{code}' nicht gefunden. E-Mail-Benachrichtigung wird versendet.")
                     try:
-                        msg = Message(
-                            subject="Neues Asset zur Anlage in TopDesk",
-                            # Annahme: MAIL_USERNAME ist in Ihrer App-Konfiguration definiert
-                            sender='florian.wenzel@worms.de',
-                            recipients=[str(current_user.mail)]
-                        )
-                        msg.body = f"""
-Hallo {current_user.id},
-
-ein neues, bisher unbekanntes Asset wurde im folgenden Raum gescannt und muss in TopDesk angelegt werden:
-
-Raum: {room_name}
-Asset-Code: {code}
-
-Bitte legen Sie dieses Asset in TopDesk an.
-
-Mit freundlichen Grüßen,
-Ihre Inventar-App
-"""
+                        recipient_email = str(current_user.mail[0]) if current_user.mail and len(
+                            current_user.mail) > 0 else None
+                        if not recipient_email:
+                            raise Exception("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
+                        msg = Message(subject="Neues Asset zur Anlage in TopDesk", sender='florian.wenzel@worms.de',
+                                      recipients=[recipient_email])
+                        msg.body = f"Hallo {current_user.id},\n\nein neues, bisher unbekanntes Asset wurde im folgenden Raum gescannt und muss in TopDesk angelegt werden:\n\nRaum: {room_name}\nAsset-Code: {code}\n\nBitte legen Sie dieses Asset in TopDesk an.\n\nMit freundlichen Grüßen,\nIhre Inventar-App"
                         mail.send(msg)
                     except Exception as e:
-                        error_msg = f"E-Mail-Benachrichtigung für Asset '{code}' konnte nicht gesendet werden."
-                        print(f"{error_msg}: {e}")
-                        report['errors'].append(error_msg)
-
-                    continue  # Springe zum nächsten Asset in der Schleife
+                        report['errors'].append(
+                            f"E-Mail-Benachrichtigung für Asset '{code}' konnte nicht gesendet werden: {e}")
+                    continue
 
                 current_assignments = topdesk.getAssignments(asset_uuid)
                 current_locations = current_assignments.get('locations', [])
-
                 is_correctly_placed = any(
                     loc.get('location', {}).get('id') == new_location_id for loc in current_locations)
 
                 if is_correctly_placed:
-                    report['successful'].append(f"Asset {code} war bereits korrekt in Raum '{room_name}'.")
+                    # Speichert den Code des Assets für den Report
+                    report['info'].append(code)
                 else:
                     if current_locations:
                         old_location_id = current_locations[0]['location']['id']
                         topdesk.unlinkAssignments(old_location_id, [asset_uuid])
-
                     topdesk.addAssignments(asset_uuid, new_branch_id, new_location_id)
-                    report['successful'].append(f"Asset {code} wurde erfolgreich zu Raum '{room_name}' verschoben.")
+                    # Speichert den Code des Assets für den Report
+                    report['successful'].append(code)
 
             except Exception as e:
                 report['errors'].append(f"Fehler bei der Aktualisierung von Asset '{code}': {str(e)}")
 
-        return jsonify({
-            'success': True,
-            'message': 'Verarbeitung abgeschlossen.',
-            'report': report
-        }), 200
+        # --- GEÄNDERT: Flash-Nachrichten werden hier am Ende mit den Asset-Listen erstellt ---
+        if report['successful']:
+            asset_list = ", ".join(report['successful'])
+            flash(f"Erfolgreich aktualisiert/verschoben ({len(report['successful'])}): {asset_list}", "success")
+
+        if report['removed']:
+            # NEU: Namen der entfernten Assets für die Meldung abrufen
+            removed_names = []
+            for uuid in report['removed']:
+                try:
+                    # Diese Funktion holt die Details eines Assets anhand der UUID
+                    asset_details = topdesk.getAssetInfo(uuid)
+                    # Wir verwenden den Asset-Namen (die ID), falls verfügbar
+                    if asset_details and asset_details.get('name'):
+                        removed_names.append(asset_details.get('name'))
+                    else:
+                        # Fallback, falls die Details nicht abgerufen werden können
+                        removed_names.append(f"Unbekanntes Asset (UUID: ...{uuid[-6:]})")
+                except Exception:
+                    removed_names.append(f"Unbekanntes Asset (UUID: ...{uuid[-6:]})")
+
+            asset_list = ", ".join(removed_names)
+            flash(f"{len(report['removed'])} fehlende Assets wurden erfolgreich aus dem Raum entfernt: {asset_list}",
+                  "warning")
+
+        if report['info']:
+            asset_list = ", ".join(report['info'])
+            flash(f"Bereits korrekt zugeordnet ({len(report['info'])}): {asset_list}", "info")
+
+        if report['errors']:
+            error_details = " | ".join(report['errors'])
+            flash(f"{len(report['errors'])} Fehler sind aufgetreten: {error_details}", "danger")
+
+        return jsonify({'success': True, 'redirect_url': url_for('home')})
 
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        flash(f"Ein schwerwiegender Fehler ist aufgetreten: {e}", "danger")
+        return jsonify({'success': False, 'redirect_url': url_for('home')})
 
 
 # --- Angepasste Route für die Anzeige der Raumliste ---
@@ -275,7 +286,7 @@ def raumschilder():
         return redirect(url_for('login'))
 
     # 2. Spezifisch prüfen, ob der eingeloggte Benutzer "wenzelf" ist
-    if current_user.id != 'wenzelf':
+    if '1.05' not in current_user.groups:
         flash("Sie haben keine Berechtigung, auf diese Seite zuzugreifen.", "danger")
         return redirect(url_for('home'))
 
@@ -306,7 +317,7 @@ def raumschilder():
 # --- Neue Route zur Generierung der QR-Code-Bilder ---
 @app.route('/generate_qr_codes', methods=['POST'])
 def generate_qr_codes():
-    if not current_user.is_authenticated or current_user.id != 'wenzelf':
+    if not current_user.is_authenticated:
         return jsonify({'success': False, 'message': 'Nicht autorisiert'}), 403
 
     rooms_to_process = request.get_json()
@@ -436,6 +447,118 @@ def get_assets_for_room():
         return jsonify({'success': False, 'message': error_message}), 500
 
 
+@app.route('/quick_inventory')
+def quick_inventory():
+    # GEÄNDERT: Die Beschränkung auf 'wenzelf' wurde entfernt.
+    if not current_user.is_authenticated:
+        flash("Sie müssen angemeldet sein, um auf diese Seite zuzugreifen.", "danger")
+        return redirect(url_for('login'))
+
+    templates = []
+    try:
+        template_data = topdesk.getTemplates()
+        if template_data and 'dataSet' in template_data:
+            for card in template_data['dataSet']:
+                if 'text' in card:
+                    templates.append(card['text'])
+    except Exception as e:
+        flash(f"Fehler beim Laden der Asset-Vorlagen von TopDesk: {e}", "warning")
+
+    return render_template('quick_inventory.html', title='Schnell-Inventur', templates=templates)
+
+
+@app.route('/save_new_assets', methods=['POST'])
+def save_new_assets():
+    # GEÄNDERT: Die Beschränkung auf 'wenzelf' wurde entfernt.
+    if not current_user.is_authenticated:
+        return jsonify({'success': False, 'message': 'Nicht autorisiert'}), 403
+
+    payload = request.get_json()
+    if not payload:
+        return jsonify({'success': False, 'message': 'Keine Daten erhalten'}), 400
+
+    assets_to_create = payload.get('assets', [])
+    device_type = payload.get('deviceType', '')  # Für den Dateinamen
+    model_name = payload.get('modelName', '')  # Für den CSV-Inhalt
+
+    if not assets_to_create:
+        return jsonify({'success': False, 'message': 'Keine Asset-Daten erhalten'}), 400
+
+    try:
+        # --- Dynamische Spaltenerkennung ---
+        # Prüfen, ob eine Modellbezeichnung vorhanden ist
+        has_model_name = bool(model_name)
+        # Prüfen, ob mindestens eine MAC-Adresse vorhanden ist
+        has_mac_address = any(asset.get('mac', '').strip() for asset in assets_to_create)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # 1. Kopfzeile dynamisch erstellen
+        header = ['Geräte-ID', 'Seriennummer']
+        if has_mac_address:
+            header.append('MAC-Adresse')
+        if has_model_name:
+            header.append('Modellbezeichnung')
+        writer.writerow(header)
+
+        # 2. Datenzeilen dynamisch erstellen
+        for asset in assets_to_create:
+            asset_id = asset.get('id', '')
+            serial_number = asset.get('serial', '')
+            mac_address = asset.get('mac', '')
+
+            # Nur Zeilen hinzufügen, die mindestens einen Wert haben
+            if asset_id or serial_number or (has_mac_address and mac_address):
+                row = [asset_id, serial_number]
+                if has_mac_address:
+                    row.append(mac_address)
+                if has_model_name:
+                    row.append(model_name)
+                writer.writerow(row)
+
+        csv_data = output.getvalue()
+
+        # Dateiname wird vom Gerätetyp (Dropdown) bestimmt
+        if device_type:
+            safe_filename = "".join(c for c in device_type if c.isalnum() or c in (' ', '_')).rstrip()
+            csv_filename = f"{safe_filename}.csv"
+        else:
+            csv_filename = "inventarliste.csv"
+
+        recipient_email = str(current_user.mail[0]) if current_user.mail and len(current_user.mail) > 0 else None
+        if not recipient_email:
+            raise Exception("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
+
+        msg = Message(
+            subject=f"Neue Inventarliste: {device_type if device_type else 'Allgemein'}",
+            sender=MAIL_ADDRESS,
+            recipients=[recipient_email]
+        )
+
+        # E-Mail-Text dynamisch anpassen
+        email_body = f"Hallo {current_user.id},\n\nanbei finden Sie die Liste der neu erfassten Geräte als CSV-Datei.\n\nGerätetyp: {device_type if device_type else 'Nicht angegeben'}"
+        if has_model_name:
+            email_body += f"\nModellbezeichnung: {model_name}"
+        email_body += "\n\nMit freundlichen Grüßen,\nIhre Inventar-App"
+        msg.body = email_body
+
+        msg.attach(csv_filename, "text/csv", csv_data)
+        mail.send(msg)
+
+        return jsonify({
+            'success': True,
+            'message': f'{len(assets_to_create)} Geräte erfasst. Eine CSV-Liste wurde erfolgreich per E-Mail an {recipient_email} gesendet.'
+        })
+
+    except Exception as e:
+        print(f"Fehler beim Erstellen oder Senden der CSV-E-Mail: {e}")
+        return jsonify({
+            'success': False,
+            'message': f"Fehler beim Erstellen der CSV-Datei: {str(e)}"
+        }), 500
+
+
 @app.route('/test', methods=["GET"])
 def test():
     return render_template('test.html')
@@ -443,7 +566,7 @@ def test():
 
 if __name__ == '__main__':
     # No SSL
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    # app.run(host='0.0.0.0', port=3000, debug=True)
 
     # With SSL active, for testing purposes on iPad for ex.
-    # app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")
+    app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")

@@ -10,98 +10,149 @@ auth = HTTPBasicAuth(TOPDESK_API_USER, TOPDESK_API_PASS)
 base_url = TOPDESK_API_URL
 
 
-
-
 def getAsset(assetID):
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets?searchTerm=%s" % assetID
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        if json.loads(response.text)['dataSet']:
-            for asset in json.loads(response.text)['dataSet']:
-                if asset['text'] == assetID:
-                    return asset['id']
-        else:
-            return False
+    """Sucht ein Asset anhand seiner ID/Namen und gibt die TopDesk-UUID zurück."""
+    url = f"{base_url}/tas/api/assetmgmt/assets?searchTerm={assetID}"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
+        response.raise_for_status()  # Löst Fehler bei 4xx/5xx-Status aus
+        data = response.json()
+        if data.get('dataSet'):
+            for asset in data['dataSet']:
+                if asset.get('text') == assetID:
+                    return asset.get('id')
+        return None # Explizit None zurückgeben, wenn nichts gefunden wurde
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getAsset für '{assetID}': {e}")
+        return None
 
 
 def getAssignments(assetID):
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets/%s/assignments" % assetID
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
-
+    """Holt die Zuweisungen für ein Asset."""
+    url = f"{base_url}/tas/api/assetmgmt/assets/{assetID}/assignments"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getAssignments für Asset-ID '{assetID}': {e}")
+        return None
 
 def unlinkAssignments(roomID, assetIDs):
-    print(roomID)
-    print(assetIDs)
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets/unlink/location/%s" % roomID
-    payload = json.dumps({
-        "assetIds": assetIDs
-    })
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    response = requests.request("POST", url, data=payload, headers=headers, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
+    """Entfernt die Zuweisung von Assets von einem Standort."""
+    url = f"{base_url}/tas/api/assetmgmt/assets/unlink/location/{roomID}"
+    payload = json.dumps({"assetIds": assetIDs})
+    headers = {'Content-Type': 'application/json'}
+    try:
+        response = requests.post(url, data=payload, headers=headers, auth=auth, proxies=proxies, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in unlinkAssignments für Raum-ID '{roomID}': {e}")
+        return None
 
 
 def getLocation(roomname):
-    url = "https://topdesk.worms.de/tas/api/locations?query=name=='%s'" % roomname
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    j = json.loads(response.text)
-    if response.status_code == 200:
-        for res in j:
-            if res['name'] == roomname:
-                return json.loads(response.text)[0]
+    """Sucht einen Standort anhand des Namens."""
+    url = f"{base_url}/tas/api/locations?query=name=='{roomname}'"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        # Die API gibt eine Liste zurück, auch wenn nur ein Ergebnis erwartet wird.
+        for res in data:
+            if res.get('name') == roomname:
+                return res # Gibt das passende Objekt direkt zurück
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getLocation für '{roomname}': {e}")
+        return None
+
+
+def getLocationById(id):
+    """Holt die Details eines Standorts anhand seiner ID."""
+    url = f"{base_url}/tas/api/locations/id/{id}"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getLocationById für ID '{id}': {e}")
+        return None
 
 
 def addAssignments(assetID, branch, room):
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets/%s/assignments" % assetID
+    """Weist ein Asset einem neuen Standort zu."""
+    url = f"{base_url}/tas/api/assetmgmt/assets/{assetID}/assignments"
     payload = json.dumps({
         "branchId": branch,
         "linkToId": room,
         "linkType": "location"
     })
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    response = requests.request("PUT", url, headers=headers, data=payload, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
+    headers = {'Content-Type': 'application/json'}
+    try:
+        response = requests.put(url, headers=headers, data=payload, auth=auth, proxies=proxies, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in addAssignments für Asset-ID '{assetID}': {e}")
+        return None
 
 
 def getAllRooms():
-    url = "https://topdesk.worms.de/tas/api/locations"
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
+    """Holt eine Liste aller Standorte."""
+    url = f"{base_url}/tas/api/locations"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=20)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getAllRooms: {e}")
+        return [] # Gibt eine leere Liste bei Fehlern zurück
 
 
 def getLocationAssets(location):
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets?linkedTo=location/%s" % location
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        data = json.loads(response.text)['dataSet']
+    """Holt alle Assets, die einem Standort zugewiesen sind."""
+    url = f"{base_url}/tas/api/assetmgmt/assets?linkedTo=location/{location}"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=20)
+        response.raise_for_status()
+        data = response.json()
         assets = []
-        for asset in data:
-            print(asset)
-            assets.append(getAssetInfo(asset['id'])['data'])
+        if data.get('dataSet'):
+            for asset in data['dataSet']:
+                # Holt für jedes gefundene Asset die Detailinformationen
+                asset_info = getAssetInfo(asset.get('id'))
+                if asset_info and 'data' in asset_info:
+                    assets.append(asset_info['data'])
         return assets
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getLocationAssets für Standort '{location}': {e}")
+        return []
 
 
 def getAssetInfo(asset):
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/assets/%s" % asset
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
+    """Holt die Detailinformationen für ein einzelnes Asset."""
+    url = f"{base_url}/tas/api/assetmgmt/assets/{asset}"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getAssetInfo für Asset '{asset}': {e}")
+        return None
 
 
 def getTemplates():
-    url = "https://topdesk.worms.de/tas/api/assetmgmt/templates"
-    response = requests.request("GET", url, auth=auth, proxies=proxies)
-    if response.status_code == 200:
-        return json.loads(response.text)
+    """Holt alle verfügbaren Asset-Vorlagen."""
+    url = f"{base_url}/tas/api/assetmgmt/templates"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getTemplates: {e}")
+        return None
 
 
 if __name__ == "__main__":
@@ -137,4 +188,5 @@ if __name__ == "__main__":
     #
     #     # Linke neuen Raum
     #     addAssignments(asset, neuloc['branch']['id'], neuloc['id'])
-    print(getAllRooms())
+    # print(getAllRooms())
+    pass

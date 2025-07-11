@@ -278,7 +278,6 @@ def direct_import():
         return jsonify({'success': False, 'redirect_url': url_for('home')})
 
 
-# --- Angepasste Route für die Anzeige der Raumliste ---
 @app.route('/raumschilder')
 def raumschilder():
     # 1. Sicherstellen, dass überhaupt ein Benutzer eingeloggt ist
@@ -286,7 +285,7 @@ def raumschilder():
         return redirect(url_for('login'))
 
     # 2. Spezifisch prüfen, ob der eingeloggte Benutzer "wenzelf" ist
-    if '1.05' not in current_user.groups:
+    if current_user.id != 'wenzelf':
         flash("Sie haben keine Berechtigung, auf diese Seite zuzugreifen.", "danger")
         return redirect(url_for('home'))
 
@@ -314,10 +313,9 @@ def raumschilder():
         return render_template('raumschilder.html', title='Raumschilder', rooms=[])
 
 
-# --- Neue Route zur Generierung der QR-Code-Bilder ---
 @app.route('/generate_qr_codes', methods=['POST'])
 def generate_qr_codes():
-    if not current_user.is_authenticated:
+    if not current_user.is_authenticated or current_user.id != 'wenzelf':
         return jsonify({'success': False, 'message': 'Nicht autorisiert'}), 403
 
     rooms_to_process = request.get_json()
@@ -327,67 +325,92 @@ def generate_qr_codes():
     generated_files = []
     errors = []
 
-    # --- Ihre Skript-Logik, integriert in die Route ---
-    # Konfiguration (Größe, Farben etc.)
-    IMG_WIDTH, IMG_HEIGHT = 1240, 1754
+    # --- Konfiguration ---
     BACKGROUND_COLOR = "white"
-    QR_CODE_BOX_SIZE = 15
+    PADDING = 60  # Rand zwischen Inhalt und Rahmen
+    FRAME_WIDTH = 8  # Dicke des Rahmens
+    QR_CODE_BOX_SIZE = 12
+    V_SPACING_1 = 60  # Abstand zwischen QR-Code und erstem Text
+    V_SPACING_2 = 30  # Abstand zwischen den Texten
 
     # Schriftarten laden
     try:
-        font_large = ImageFont.truetype(FONT_FILE, 60)
-        font_small = ImageFont.truetype(FONT_FILE, 40)
+        font_large = ImageFont.truetype(FONT_FILE, 70)
+        font_small = ImageFont.truetype(FONT_FILE, 50)
     except IOError:
         font_large, font_small = ImageFont.load_default(), ImageFont.load_default()
         errors.append("Warnung: arial.ttf nicht gefunden, Standard-Schriftart wird verwendet.")
 
     # Logo laden
     try:
-        logo_img = Image.open(LOGO_FILE).convert("RGBA")
-        w_percent = (200 / float(logo_img.size[0]))
-        h_size = int((float(logo_img.size[1]) * float(w_percent)))
-        logo_img = logo_img.resize((200, h_size), Image.LANCZOS)
+        logo_img_master = Image.open(LOGO_FILE).convert("RGBA")
     except FileNotFoundError:
-        logo_img = None
+        logo_img_master = None
         errors.append(f"Warnung: Logo-Datei '{LOGO_FILE}' nicht gefunden.")
 
     # Verarbeitung der übergebenen Räume
     for room in rooms_to_process:
         try:
-            # Das gesamte JSON-Objekt wird in den QR-Code kodiert
-            json_string = json.dumps(room, indent=4, ensure_ascii=False)
+            qr_data_string = room.get("id", "")
+            if not qr_data_string:
+                errors.append(f"Fehler bei '{room.get('name')}': Keine ID im Raum-Objekt gefunden.")
+                continue
 
-            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=QR_CODE_BOX_SIZE,
-                               border=2)
-            qr.add_data(json_string)
+            # 1. QR-Code generieren
+            qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=QR_CODE_BOX_SIZE, border=2)
+            qr.add_data(qr_data_string)
             qr.make(fit=True)
-            qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
 
-            # Bild-Leinwand erstellen
-            schild_img = Image.new('RGB', (IMG_WIDTH, IMG_HEIGHT), BACKGROUND_COLOR)
+            # Logo einfügen
+            if logo_img_master:
+                logo_img = logo_img_master.copy()
+                logo_max_size = qr_img.size[0] // 4
+                logo_img.thumbnail((logo_max_size, logo_max_size), Image.LANCZOS)
+                logo_pos = ((qr_img.width - logo_img.width) // 2, (qr_img.height - logo_img.height) // 2)
+                logo_bg = Image.new("RGBA", (logo_img.width + 20, logo_img.height + 20), "white")
+                qr_img.paste(logo_bg, (logo_pos[0] - 10, logo_pos[1] - 10))
+                qr_img.paste(logo_img, logo_pos, logo_img)
 
-            # QR-Code und Logo positionieren und einfügen
-            qr_x, qr_y = (IMG_WIDTH - qr_img.size[0]) // 2, 200
-            schild_img.paste(qr_img, (qr_x, qr_y))
-            if logo_img:
-                schild_img.paste(logo_img, (IMG_WIDTH - logo_img.width - 50, 50), logo_img)
+            # 2. Textgrößen messen
+            draw_temp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+            label1_text = room.get("name", "Kein Name")
+            label2_text = room.get("branch", {}).get("name", "Keine Zweigstelle")
 
-            # Text erstellen und zentriert einfügen
+            bbox1 = draw_temp.textbbox((0, 0), label1_text, font=font_large)
+            bbox2 = draw_temp.textbbox((0, 0), label2_text, font=font_small)
+            text_width1, text_height1 = bbox1[2] - bbox1[0], bbox1[3] - bbox1[1]
+            text_width2, text_height2 = bbox2[2] - bbox2[0], bbox2[3] - bbox2[1]
+
+            # 3. Gesamtgröße des Inhalts berechnen
+            content_width = max(qr_img.width, text_width1, text_width2)
+            content_height = qr_img.height + V_SPACING_1 + text_height1 + V_SPACING_2 + text_height2
+
+            # 4. Finale Bildgröße basierend auf Inhalt und Rändern berechnen
+            final_width = content_width + 2 * PADDING
+            final_height = content_height + 2 * PADDING
+
+            # 5. Finale Leinwand erstellen
+            schild_img = Image.new('RGB', (final_width, final_height), BACKGROUND_COLOR)
             draw = ImageDraw.Draw(schild_img)
 
-            label1_text = room.get("name", "Kein Name")
-            text_bbox1 = draw.textbbox((0, 0), label1_text, font=font_large)
-            text_x1 = (IMG_WIDTH - (text_bbox1[2] - text_bbox1[0])) // 2
-            text_y1 = qr_y + qr_img.size[1] + 150
+            # 6. Elemente zentriert auf der Leinwand platzieren
+            qr_x = (final_width - qr_img.width) // 2
+            qr_y = PADDING
+            schild_img.paste(qr_img.convert("RGB"), (qr_x, qr_y))
+
+            text_x1 = (final_width - text_width1) // 2
+            text_y1 = qr_y + qr_img.height + V_SPACING_1
             draw.text((text_x1, text_y1), label1_text, fill="black", font=font_large)
 
-            label2_text = room.get("branch", {}).get("name", "Keine Zweigstelle")
-            text_bbox2 = draw.textbbox((0, 0), label2_text, font=font_small)
-            text_x2 = (IMG_WIDTH - (text_bbox2[2] - text_bbox2[0])) // 2
-            text_y2 = text_y1 + 100
+            text_x2 = (final_width - text_width2) // 2
+            text_y2 = text_y1 + text_height1 + V_SPACING_2
             draw.text((text_x2, text_y2), label2_text, fill="black", font=font_small)
 
-            # Bild speichern
+            # 7. Schneidrahmen um das gesamte Bild zeichnen
+            draw.rectangle((0, 0, final_width - 1, final_height - 1), outline="black", width=FRAME_WIDTH)
+
+            # 8. Bild speichern
             output_filename = os.path.join(QR_CODE_OUTPUT_DIR, room['filename'])
             schild_img.save(output_filename)
 
@@ -557,6 +580,49 @@ def save_new_assets():
             'success': False,
             'message': f"Fehler beim Erstellen der CSV-Datei: {str(e)}"
         }), 500
+
+
+@app.route('/get_location_details_by_id')
+def get_location_details_by_id():
+    if not current_user.is_authenticated:
+        return jsonify({'success': False, 'message': 'Nicht authentifiziert'}), 401
+
+    location_id = request.args.get('id')
+    if not location_id:
+        return jsonify({'success': False, 'message': 'Keine ID angegeben'}), 400
+
+    try:
+        # Ruft die Funktion aus Ihrer topdesk.py auf
+
+        location_details = topdesk.getLocationById(location_id)
+
+        # KORREKTUR: Prüft, ob die Antwort ein Dictionary ist, bevor sie verwendet wird.
+        # Dies fängt den Fall ab, dass Ihre Funktion bei einem Fehler einen String zurückgibt.
+        if isinstance(location_details, dict):
+            # Gibt das von Ihrer Funktion gefundene Raum-Objekt direkt an das Frontend weiter.
+            return jsonify({'success': True, 'location': location_details})
+        else:
+            # Wenn die Funktion etwas anderes als ein Dictionary zurückgibt (z.B. einen Fehlerstring oder None),
+            # wird dies als "nicht gefunden" behandelt.
+            error_msg = location_details if isinstance(location_details,
+                                                       str) else f"Raum mit ID {location_id} nicht gefunden."
+            return jsonify({'success': False, 'message': error_msg}), 404
+
+    except Exception as e:
+        error_message = f"Fehler bei der Abfrage von TopDesk für ID {location_id}: {e}"
+        print(error_message)
+        return jsonify({'success': False, 'message': error_message}), 500
+
+
+@app.route('/raum_info')
+def raum_info():
+    # Sichert die Seite ab
+    if not current_user.is_authenticated:
+        flash("Sie müssen angemeldet sein, um auf diese Seite zuzugreifen.", "danger")
+        return redirect(url_for('login'))
+
+    # Rendert die neue HTML-Seite
+    return render_template('raum_info.html', title='Raum-Information')
 
 
 @app.route('/test', methods=["GET"])

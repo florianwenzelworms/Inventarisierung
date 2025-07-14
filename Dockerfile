@@ -1,24 +1,26 @@
-FROM python:3.10
-WORKDIR /
-ENV FLASK_APP=app.py
-ENV FLASK_RUN_HOST=0.0.0.0
-ENV FLASK_DEBUG=TRUE
+# Verwenden Sie ein offizielles, schlankes Python-Image als Basis
+FROM python:3.9-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
-RUN apt-get update && \
-    apt-get install -y \
-        locales && \
-    rm -r /var/lib/apt/lists/*
+# Setzen Sie das Arbeitsverzeichnis im Container
+WORKDIR /app
 
-# RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && \
-#     sed -i -e 's/# de_DE.UTF-8 UTF-8/de_DE.UTF-8 UTF-8/' /etc/locale.gen && \
-#     dpkg-reconfigure --frontend=noninteractive locales
+# Kopieren Sie zuerst die Datei mit den Abhängigkeiten, um den Docker-Build-Cache zu optimieren
+COPY requirements.txt .
 
-COPY requirements.txt requirements.txt
-RUN pip3 install --upgrade pip
-RUN pip3 install -r requirements.txt
+# Installieren Sie die Python-Bibliotheken
+RUN pip install --no-cache-dir -r requirements.txt
 
-EXPOSE 3000
+# Kopieren Sie den gesamten restlichen Anwendungscode in das Arbeitsverzeichnis
 COPY . .
 
-CMD ["flask", "run", "--host", "0.0.0.0", "--port", "3000"]
+# Setzen Sie eine Umgebungsvariable, um Python anzuweisen, Ausgaben direkt zu schreiben
+ENV PYTHONUNBUFFERED 1
+
+# Machen Sie den Port, auf dem die App laufen wird, für Docker sichtbar
+EXPOSE 5000
+
+# Der Befehl, um die Anwendung mit einem produktionsreifen Server (Gunicorn) zu starten
+# -w 4 startet 4 "Worker"-Prozesse
+# -b 0.0.0.0:5000 bindet den Server an alle Netzwerkschnittstellen auf Port 5000
+# app:app bedeutet: in der Datei app.py, finde die Flask-Instanz namens app
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]

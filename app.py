@@ -126,14 +126,6 @@ def home():
         return redirect(url_for("login"))
 
 
-@app.route('/inv', methods=["GET"])
-def inv():
-    if current_user.is_authenticated:
-        return render_template('inv.html')
-    else:
-        return redirect(url_for("login"))
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:

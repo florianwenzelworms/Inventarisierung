@@ -40,6 +40,8 @@ $(function() {
         }
         const building = location.buildingZone?.name || 'N/A';
         const branch = location.branch?.name || 'N/A';
+
+        // GEÄNDERT: Die Anzeige der IDs wurde angepasst
         const infoHtml = `
             <div class="card">
                 <div class="card-header bg-dark text-white"><h5 class="mb-0">${location.name || 'Unbekannter Raum'}</h5></div>
@@ -47,7 +49,8 @@ $(function() {
                     <li class="list-group-item d-flex justify-content-between"><strong>Gebäude:</strong><span>${building}</span></li>
                     <li class="list-group-item d-flex justify-content-between"><strong>Raumnummer:</strong><span>${location.roomNumber || 'N/A'}</span></li>
                     <li class="list-group-item d-flex justify-content-between"><strong>Niederlassung:</strong><span>${branch}</span></li>
-                    <li class="list-group-item d-flex justify-content-between"><strong>ID:</strong><code class="small">${location.id || 'N/A'}</code></li>
+                    <li class="list-group-item d-flex justify-content-between"><strong>Raum-ID:</strong><code class="small">${App.scannedCustomId || 'N/A'}</code></li>
+                    <li class="list-group-item d-flex justify-content-between"><strong>Topdesk-ID:</strong><code class="small">${location.id || 'N/A'}</code></li>
                 </ul>
             </div>`;
         $infoDisplay.html(infoHtml);
@@ -77,20 +80,16 @@ $(function() {
                     App.initialLocation = response.location; // Das gefundene Objekt speichern
                     displayLocationInfo(response.location);
                 } else {
-                    // Dieser Fall wird jetzt nur noch erreicht, wenn der Server 200 OK sendet,
-                    // aber success: false im JSON hat.
                     App.initialLocation = null;
+                    // GEÄNDERT: Zeigt jetzt die spezifische Fehlermeldung an
                     $("#info-display").html(`<div class="alert alert-warning">${response.message}</div>`);
                 }
             },
-            // GEÄNDERT: Die Fehlerbehandlung ist jetzt intelligenter
             error: function(jqXHR) {
                 App.initialLocation = null;
-                // Prüft, ob der Server eine spezifische JSON-Fehlermeldung gesendet hat
                 if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
                     $("#info-display").html(`<div class="alert alert-warning">${jqXHR.responseJSON.message}</div>`);
                 } else {
-                    // Ansonsten wird ein allgemeiner Serverfehler angezeigt
                     $("#info-display").html('<div class="alert alert-danger">Serverfehler beim Abrufen der Raumdetails.</div>');
                 }
             },

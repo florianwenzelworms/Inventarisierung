@@ -6,7 +6,7 @@
         <div class="col-md-5">
             <h4>Raum-QR-Code scannen</h4>
             <div id="reader" style="width: 100%; border: 1px solid lightgray;"></div>
-            <div id="scan-notification" style="display: none; text-align: center; color: red; font-weight: bold; margin-top: 5px; opacity: 0; transition: opacity 0.5s;"></div>
+            <div id="scan-notification" style="display: none; text-align: center; font-weight: bold; margin-top: 5px; opacity: 0; transition: opacity 0.5s;"></div>
             <div class="controls mt-3">
                 <button class="btn btn-info start">Kamera Start</button>
                 <button class="btn btn-danger stop">Kamera Stop</button>
@@ -25,12 +25,45 @@
                     </div>
                 </div>
             </div>
+            <!-- Button und Feedback-Bereich für die Zuweisung -->
+            <div class="d-grid mt-3">
+                <button id="assign-room-btn" class="btn btn-primary" disabled>ID einem Raum zuweisen...</button>
+            </div>
+            <div id="assign-feedback" class="mt-2"></div>
         </div>
     </div>
 </div>
 
+<!-- Modal für die Raum-Zuweisung -->
+<div class="modal fade" id="assignRoomModal" tabindex="-1" aria-labelledby="assignRoomModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="assignRoomModalLabel">Raum zuweisen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Weisen Sie die gescannte ID <strong id="scanned-id-label"></strong> einem Raum zu:</p>
+        <select class="form-select" id="room-select-dropdown">
+            <option selected disabled>Bitte einen Raum auswählen...</option>
+            {% for room in all_rooms %}
+                <option value="{{ room.id }}">{{ room.name }}</option>
+            {% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" id="confirm-assignment-btn" class="btn btn-success">Zuweisung bestätigen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Skripte am Ende der Datei -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Verweis auf die ausgelagerte JavaScript-Datei -->
 <script src="{{ url_for('static', filename='js/raum_info.js') }}"></script>
 {% endblock content %}

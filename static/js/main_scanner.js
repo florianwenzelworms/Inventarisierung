@@ -26,7 +26,7 @@ $(function() {
         const $tableBody = $("#asset-checklist-body");
         $tableBody.empty();
         if (App.checklist.length === 0) {
-            $tableBody.append('<tr><td colspan="3" class="text-center text-muted">Für diesen Raum sind keine Assets in TopDesk hinterlegt.</td></tr>');
+            $tableBody.append('<tr><td colspan="3" class="text-center text-muted">Für diesen Raum sind keine Assets in TopDesk hinterlegt oder der Raum wurde nicht gefunden.</td></tr>');
             return;
         }
         App.checklist.forEach(asset => {
@@ -135,8 +135,13 @@ $(function() {
                         $("#raumfeld").val("");
                     }
                 },
-                error: function() {
-                    alert("Serverfehler beim Abrufen der Raumdetails.");
+                // KORRIGIERT: Fehlerbehandlung für die Hauptseite
+                error: function(jqXHR) {
+                    if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
+                        alert("Fehler: " + jqXHR.responseJSON.message);
+                    } else {
+                        alert("Serverfehler beim Abrufen der Raumdetails.");
+                    }
                     $("#raumfeld").val("");
                 },
                 complete: function() {

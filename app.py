@@ -584,23 +584,25 @@ def get_location_details_by_id():
         return jsonify({'success': False, 'message': 'Keine ID angegeben'}), 400
 
     try:
-        # Ruft die Funktion aus Ihrer topdesk.py auf
-
+        # Ruft Ihre Funktion aus topdesk.py auf
         location_details = topdesk.getLocationById(location_id)
 
-        # KORREKTUR: Prüft, ob die Antwort ein Dictionary ist, bevor sie verwendet wird.
-        # Dies fängt den Fall ab, dass Ihre Funktion bei einem Fehler einen String zurückgibt.
-        if isinstance(location_details, dict):
-            # Gibt das von Ihrer Funktion gefundene Raum-Objekt direkt an das Frontend weiter.
+        # Prüft, ob die Funktion ein sinnvolles Ergebnis zurückgegeben hat.
+        # Dies funktioniert sowohl, wenn die Funktion None als auch wenn sie eine leere Liste [] zurückgibt.
+        if location_details:
             return jsonify({'success': True, 'location': location_details})
         else:
-            # Wenn die Funktion etwas anderes als ein Dictionary zurückgibt (z.B. einen Fehlerstring oder None),
-            # wird dies als "nicht gefunden" behandelt.
-            error_msg = location_details if isinstance(location_details,
-                                                       str) else f"Raum mit ID {location_id} nicht gefunden."
-            return jsonify({'success': False, 'message': error_msg}), 404
+            # Dieser Fall wird jetzt korrekt behandelt, wenn eine leere Liste zurückkommt.
+            return jsonify({'success': False, 'message': f'Raum mit ID "{location_id}" nicht gefunden.'}), 404
+
+    except IndexError:
+        # Fängt explizit den "list index out of range"-Fehler ab, falls er doch
+        # innerhalb Ihrer topdesk.py-Funktion auftritt.
+        print(f"IndexError bei der Suche nach ID '{location_id}'. Das bedeutet, die Suche lieferte keine Ergebnisse.")
+        return jsonify({'success': False, 'message': f'Raum mit ID "{location_id}" nicht gefunden.'}), 404
 
     except Exception as e:
+        # Fängt alle anderen unerwarteten Fehler ab.
         error_message = f"Fehler bei der Abfrage von TopDesk für ID {location_id}: {e}"
         print(error_message)
         return jsonify({'success': False, 'message': error_message}), 500
@@ -613,13 +615,53 @@ def raum_info():
         flash("Sie müssen angemeldet sein, um auf diese Seite zuzugreifen.", "danger")
         return redirect(url_for('login'))
 
-    # Rendert die neue HTML-Seite
-    return render_template('raum_info.html', title='Raum-Information')
+    # NEU: Ruft die Liste aller Räume für das Dropdown-Menü ab
+    all_rooms = []
+    try:
+        # Annahme: topdesk.getAllRooms() gibt eine Liste von Raum-Objekten zurück
+        all_rooms = topdesk.getAllRooms()
+    except Exception as e:
+        flash(f"Fehler beim Laden der Raumliste von TopDesk: {e}", "warning")
+
+    # Rendert die neue HTML-Seite und übergibt die Raumliste
+    return render_template('raum_info.html', title='Raum-Information', all_rooms=all_rooms)
 
 
-@app.route('/test', methods=["GET"])
-def test():
-    return render_template('test.html')
+@app.route('/assign_custom_id_to_room', methods=['POST'])
+def assign_custom_id_to_room():
+    """
+    Nimmt eine gescannte Custom-ID und eine ausgewählte Raum-UUID entgegen
+    und aktualisiert den Raum in TopDesk.
+    """
+    if not current_user.is_authenticated:
+        return jsonify({'success': False, 'message': 'Nicht autorisiert'}), 403
+
+    data = request.get_json()
+    location_uuid = data.get('location_uuid')
+    custom_room_id = data.get('custom_room_id')
+
+    if not location_uuid or not custom_room_id:
+        return jsonify({'success': False, 'message': 'Unvollständige Daten erhalten.'}), 400
+
+    try:
+        # Ruft die von Ihnen bereitgestellte Funktion aus topdesk.py auf
+        updated_room = topdesk.updateRoomId(location_uuid, custom_room_id)
+
+        if updated_room:
+            return jsonify({
+                'success': True,
+                'message': f"Die ID '{custom_room_id}' wurde erfolgreich dem Raum '{updated_room.get('name', '')}' zugewiesen."
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': "Fehler beim Aktualisieren des Raums in TopDesk."
+            }), 500
+
+    except Exception as e:
+        error_message = f"Fehler bei der Zuweisung: {e}"
+        print(error_message)
+        return jsonify({'success': False, 'message': error_message}), 500
 
 
 if __name__ == '__main__':

@@ -71,7 +71,17 @@ def getLocation(roomname):
 
 def getLocationById(id):
     """Holt die Details eines Standorts anhand seiner ID."""
-    url = f"{base_url}/tas/api/locations/id/{id}"
+    temp_id = id
+    if len(temp_id) == 6:
+        pre_url = f"{base_url}/tas/api/locations?query=optionalFields1.text1=={temp_id}"
+        try:
+            response = requests.get(pre_url, auth=auth, proxies=proxies, timeout=10)
+            response.raise_for_status()
+            temp_id = response.json()[0].get('id')
+        except requests.exceptions.RequestException as e:
+            print(f"API Fehler in getLocationById für ID '{temp_id}': {e}")
+            return None
+    url = f"{base_url}/tas/api/locations/id/{temp_id}"
     try:
         response = requests.get(url, auth=auth, proxies=proxies, timeout=10)
         response.raise_for_status()
@@ -152,6 +162,49 @@ def getTemplates():
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"API Fehler in getTemplates: {e}")
+        return None
+
+
+def updateRoomId(location_uuid, custom_room_id):
+    """
+    Aktualisiert das benutzerdefinierte ID-Feld ('text1') für einen bestimmten Standort.
+
+    Args:
+        location_uuid (str): Die eindeutige UUID des Standorts in TopDesk.
+        custom_room_id (str): Die 6-stellige benutzerdefinierte ID, die gesetzt werden soll.
+
+    Returns:
+        dict: Das JSON-Objekt des aktualisierten Standorts bei Erfolg, sonst None.
+    """
+    # Der API-Endpunkt für den spezifischen Standort
+    url = f"{base_url}/tas/api/locations/id/{location_uuid}"
+
+    # Die Daten, die aktualisiert werden sollen. Nur das spezifische Feld wird gesendet.
+    payload = json.dumps({
+        "optionalFields1": {
+            "text1": custom_room_id
+        }
+    })
+
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        # Führt die PUT-Anfrage aus, um die Daten zu aktualisieren
+        response = requests.put(url, headers=headers, data=payload, auth=auth, proxies=proxies, timeout=10)
+
+        # Löst eine Ausnahme aus, wenn der Server einen Fehlerstatus (4xx oder 5xx) zurückgibt
+        response.raise_for_status()
+
+        # Gibt die JSON-Antwort des Servers bei Erfolg zurück
+        return response.json()
+
+    except requests.exceptions.RequestException as e:
+        # Fängt Netzwerkfehler, Timeouts, etc. ab
+        print(f"API Fehler in updateRoomId für Standort-UUID '{location_uuid}': {e}")
+        return None
+    except json.JSONDecodeError as e:
+        # Fängt Fehler ab, wenn die Antwort vom Server kein gültiges JSON ist
+        print(f"Fehler beim Parsen der JSON-Antwort in updateRoomId für Standort-UUID '{location_uuid}': {e}")
         return None
 
 

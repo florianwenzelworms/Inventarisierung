@@ -12,19 +12,37 @@ $(function() {
     const html5QrCode = new Html5Qrcode("reader");
 
     function renderTable() {
-        const $tableBody = $("#inventory-table-body");
+        const $table = $(".table");
+        const $tableHead = $table.find("thead");
+        const $tableBody = $table.find("tbody");
+        $tableHead.empty();
         $tableBody.empty();
+
+        const selectedDeviceType = $("#model-name-select").val();
+        const showMacColumn = ['Computer', 'Laptop', 'Telefon'].includes(selectedDeviceType);
+
+        let headerHtml = '<tr><th>Geräte-ID</th><th>Seriennummer</th>';
+        if (showMacColumn) {
+            headerHtml += '<th>MAC-Adresse</th>';
+        }
+        headerHtml += '<th style="width: 50px;"></th></tr>';
+        $tableHead.html(headerHtml);
+
         App.inventory.forEach((item, index) => {
             const idInputClass = (index === App.activeRowIndex && App.nextField === 'id') ? 'form-control form-control-sm bg-info-subtle' : 'form-control form-control-sm';
             const serialInputClass = (index === App.activeRowIndex && App.nextField === 'serial') ? 'form-control form-control-sm bg-info-subtle' : 'form-control form-control-sm';
             const macInputClass = (index === App.activeRowIndex && App.nextField === 'mac') ? 'form-control form-control-sm bg-info-subtle' : 'form-control form-control-sm';
-            const rowHtml = `
+
+            let rowHtml = `
                 <tr>
                     <td><div class="input-group"><input type="text" class="${idInputClass}" value="${item.id}" data-index="${index}" data-field="id" placeholder="ID"><button class="btn btn-outline-secondary btn-sm na-btn" type="button" data-index="${index}" data-field="id">n/a</button></div></td>
-                    <td><div class="input-group"><input type="text" class="${serialInputClass}" value="${item.serial}" data-index="${index}" data-field="serial" placeholder="Seriennr."><button class="btn btn-outline-secondary btn-sm na-btn" type="button" data-index="${index}" data-field="serial">n/a</button></div></td>
-                    <td><div class="input-group"><input type="text" class="${macInputClass}" value="${item.mac}" data-index="${index}" data-field="mac" placeholder="MAC"><button class="btn btn-outline-secondary btn-sm na-btn" type="button" data-index="${index}" data-field="mac">n/a</button></div></td>
-                    <td><button class="btn btn-danger btn-sm delete-btn" data-index="${index}">&times;</button></td>
-                </tr>`;
+                    <td><div class="input-group"><input type="text" class="${serialInputClass}" value="${item.serial}" data-index="${index}" data-field="serial" placeholder="Seriennr."><button class="btn btn-outline-secondary btn-sm na-btn" type="button" data-index="${index}" data-field="serial">n/a</button></div></td>`;
+
+            if (showMacColumn) {
+                rowHtml += `<td><div class="input-group"><input type="text" class="${macInputClass}" value="${item.mac}" data-index="${index}" data-field="mac" placeholder="MAC"><button class="btn btn-outline-secondary btn-sm na-btn" type="button" data-index="${index}" data-field="mac">n/a</button></div></td>`;
+            }
+
+            rowHtml += `<td><button class="btn btn-danger btn-sm delete-btn" data-index="${index}">&times;</button></td></tr>`;
             $tableBody.append(rowHtml);
         });
     }
@@ -55,10 +73,11 @@ $(function() {
     }
 
     function findAndSetNextTarget() {
+        const showMacColumn = ['Computer', 'Laptop', 'Telefon'].includes($("#model-name-select").val());
         for (let i = 0; i < App.inventory.length; i++) {
             if (App.inventory[i].id.trim() === '') { App.activeRowIndex = i; App.nextField = 'id'; return; }
             if (App.inventory[i].serial.trim() === '') { App.activeRowIndex = i; App.nextField = 'serial'; return; }
-            if (App.inventory[i].mac.trim() === '') { App.activeRowIndex = i; App.nextField = 'mac'; return; }
+            if (showMacColumn && App.inventory[i].mac.trim() === '') { App.activeRowIndex = i; App.nextField = 'mac'; return; }
         }
         App.inventory.push({ id: '', serial: '', mac: '' });
         App.activeRowIndex = App.inventory.length - 1;
@@ -76,30 +95,46 @@ $(function() {
         }
         playBeep();
         if (App.nextField === 'id') { currentItem.id = decodedText; App.nextField = 'serial';
-        } else if (App.nextField === 'serial') { currentItem.serial = decodedText; App.nextField = 'mac';
+        } else if (App.nextField === 'serial') { currentItem.serial = decodedText;
+            if (['Computer', 'Laptop', 'Telefon'].includes($("#model-name-select").val())) {
+                App.nextField = 'mac';
+            } else {
+                checkDuplicateAndProceed(currentItem, currentIndex);
+            }
         } else if (App.nextField === 'mac') {
             currentItem.mac = decodedText;
-            let isDuplicate = false;
-            if (currentItem.id.trim() && currentItem.id !== 'n/a' && currentItem.serial.trim() && currentItem.serial !== 'n/a' && currentItem.mac.trim() && currentItem.mac !== 'n/a') {
-                for (let i = 0; i < App.inventory.length; i++) {
-                    if (i === currentIndex) continue;
-                    const otherItem = App.inventory[i];
-                    if (otherItem.id === currentItem.id && otherItem.serial === currentItem.serial && otherItem.mac === currentItem.mac) {
-                        isDuplicate = true; break;
-                    }
-                }
-            }
-            if (isDuplicate) {
-                showNotification("Gerät bereits erfasst!");
-                currentItem.id = ''; currentItem.serial = ''; currentItem.mac = '';
-                App.nextField = 'id';
-            } else {
-                findAndSetNextTarget();
-            }
+            checkDuplicateAndProceed(currentItem, currentIndex);
         }
         renderTable();
         setTimeout(() => html5QrCode.resume(), 500);
     };
+
+    function checkDuplicateAndProceed(currentItem, currentIndex) {
+        let isDuplicate = false;
+        const showMacColumn = ['Computer', 'Laptop', 'Telefon'].includes($("#model-name-select").val());
+        const idOk = currentItem.id.trim() && currentItem.id !== 'n/a';
+        const serialOk = currentItem.serial.trim() && currentItem.serial !== 'n/a';
+        const macOk = !showMacColumn || (currentItem.mac.trim() && currentItem.mac !== 'n/a');
+        if (idOk && serialOk && macOk) {
+             for (let i = 0; i < App.inventory.length; i++) {
+                if (i === currentIndex) continue;
+                const otherItem = App.inventory[i];
+                const idMatch = otherItem.id === currentItem.id;
+                const serialMatch = otherItem.serial === currentItem.serial;
+                const macMatch = !showMacColumn || (otherItem.mac === currentItem.mac);
+                if (idMatch && serialMatch && macMatch) {
+                    isDuplicate = true; break;
+                }
+            }
+        }
+        if (isDuplicate) {
+            showNotification("Gerät bereits erfasst!");
+            currentItem.id = ''; currentItem.serial = ''; currentItem.mac = '';
+            App.nextField = 'id';
+        } else {
+            findAndSetNextTarget();
+        }
+    }
 
     function startCamera() {
         if (html5QrCode.isScanning) return;
@@ -158,7 +193,9 @@ $(function() {
         const index = $(this).data("index");
         const field = $(this).data("field");
         App.inventory[index][field] = "n/a";
-        if (App.inventory[index].id && App.inventory[index].serial && App.inventory[index].mac) {
+        const item = App.inventory[index];
+        const showMacColumn = ['Computer', 'Laptop', 'Telefon'].includes($("#model-name-select").val());
+        if (item.id && item.serial && (item.mac || !showMacColumn)) {
             findAndSetNextTarget();
         }
         renderTable();
@@ -184,21 +221,25 @@ $(function() {
     $("#save-inventory-btn").on("click", function() {
         const $button = $(this);
         const $feedback = $("#save-feedback");
-        const finalInventory = App.inventory.filter(item => item.id.trim() && item.serial.trim() && item.mac.trim());
+        const showMacColumn = ['Computer', 'Laptop', 'Telefon'].includes($("#model-name-select").val());
+
+        const finalInventory = App.inventory.filter(item => {
+            const idOk = item.id.trim();
+            const serialOk = item.serial.trim();
+            if (showMacColumn) {
+                return idOk && serialOk && item.mac.trim();
+            }
+            return idOk && serialOk;
+        });
 
         if (finalInventory.length === 0) {
-            alert("Bitte erfassen Sie mindestens ein vollständiges Gerätetrio.");
+            alert("Bitte erfassen Sie mindestens ein vollständiges Gerät.");
             return;
         }
 
         const deviceType = $("#model-name-select").val() || '';
         const modelName = $("#model-name-field").val().trim();
-
-        const payload = {
-            assets: finalInventory,
-            deviceType: deviceType,
-            modelName: modelName
-        };
+        const payload = { assets: finalInventory, deviceType: deviceType, modelName: modelName };
 
         $button.prop('disabled', true).text('Speichere...');
         $feedback.empty().removeClass();
@@ -225,6 +266,7 @@ $(function() {
         App.inventory = [];
         findAndSetNextTarget();
         renderTable();
+        startCamera(); // Kamera automatisch starten
     }
 
     initialize();

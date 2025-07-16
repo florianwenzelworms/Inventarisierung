@@ -66,6 +66,20 @@
     {% block content %}{% endblock %}
 </main>
 
+<style>
+    /* Auf Bildschirmen, die schmaler als 768px sind (typische Tablets/Handys) */
+    @media (max-width: 767.98px) {
+        #reader {
+            /* Begrenzt die Höhe des Kamera-Containers */
+            max-height: 400px;
+            overflow: hidden; /* Verhindert, dass das Video überläuft */
+        }
+        /* Zielt direkt auf das Video-Element, das von der Bibliothek erstellt wird */
+        #reader video {
+            object-fit: cover; /* Stellt sicher, dass das Video den Bereich füllt, ohne das Seitenverhältnis zu verzerren */
+        }
+    }
+</style>
 
 <!-- JavaScript-Dateien -->
 <!-- Das Bootstrap JS Bundle wird für interaktive Elemente in Unterseiten weiterhin benötigt. -->

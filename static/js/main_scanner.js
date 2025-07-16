@@ -9,6 +9,8 @@ $(function() {
         importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal'))
     };
 
+    const html5QrCode = new Html5Qrcode("reader");
+
     function renderScannedItems() {
         const $list = $(".thumbnails");
         $list.empty();
@@ -101,7 +103,6 @@ $(function() {
         });
     }
 
-    const html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
     const onScanSuccess = (decodedText, decodedResult) => {
@@ -123,19 +124,15 @@ $(function() {
                         const locationData = response.location;
                         const buildingName = locationData.buildingZone?.name || '';
                         const roomName = locationData.name || '';
-
                         const displayText = buildingName ? `${buildingName} - ${roomName}` : roomName;
-
                         App.raumName = roomName;
                         $("#raumfeld").val(displayText);
-
                         fetchChecklist(App.raumName);
                     } else {
                         alert("Fehler: " + response.message);
                         $("#raumfeld").val("");
                     }
                 },
-                // KORRIGIERT: Fehlerbehandlung für die Hauptseite
                 error: function(jqXHR) {
                     if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
                         alert("Fehler: " + jqXHR.responseJSON.message);
@@ -155,10 +152,24 @@ $(function() {
         }
     };
 
-    $(".controls").on("click", "button.start", () => html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {}));
-    $(".controls").on("click", "button.stop", () => { if (html5QrCode.isScanning) html5QrCode.stop().then(() => { App.scannerState = 'STOPPED'; }); });
+    function startCamera() {
+        if (html5QrCode.isScanning) return;
+        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, (e) => {})
+            .then(() => { App.scannerState = 'SCANNING'; console.log("Kamera gestartet."); })
+            .catch(err => $("#reader").html(`<div class="alert alert-danger">Kamerafehler: ${err}</div>`));
+    }
+
+    function stopCamera() {
+        if (html5QrCode.isScanning) {
+            html5QrCode.stop().then(() => { App.scannerState = 'STOPPED'; console.log("Kamera gestoppt."); });
+        }
+    }
+
+    $(".controls").on("click", "button.start", startCamera);
+    $(".controls").on("click", "button.stop", stopCamera);
     $("#raumfeld").on("keypress", e => { if (e.which === 13) { App.raumName = $(e.target).val(); fetchChecklist(App.raumName); }});
     $(".controls").on("click", "button.reset", () => {
+        stopCamera();
         App.raumName = ""; App.scannedItems = []; App.checklist = [];
         $("#raumfeld").val(""); renderScannedItems();
         $("#asset-checklist-body").html('<tr><td colspan="3" class="text-center text-muted">Bitte zuerst einen Raum auswählen.</td></tr>');
@@ -189,4 +200,5 @@ $(function() {
     $("#import-remove-missing-btn").on("click", () => runImport(true));
 
     renderScannedItems();
+    startCamera(); // Kamera automatisch starten
 });

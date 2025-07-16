@@ -78,22 +78,42 @@ $(function() {
         });
     }
 
+    // GEÄNDERT: Prüft jetzt explizit das Format des QR-Codes und gibt bei anderen Typen eine Meldung aus
     const onScanSuccess = (decodedText, decodedResult) => {
-        html5QrCode.pause();
-        playBeep();
+        const codeFormat = decodedResult.result.format.formatName;
+        const scannedCode = decodedText.trim();
 
-        const roomId = decodedText.trim();
+        // Nur fortfahren, wenn es ein QR-Code ist
+        if (codeFormat === "QR_CODE") {
+            // Validierung: Prüft, ob es ein 6-stelliger Code ist, der mit 1 beginnt.
+            if (/^1\d{5}$/.test(scannedCode)) {
+                html5QrCode.pause();
+                playBeep();
 
-        // Füllt das Textfeld und startet die Suche automatisch
-        $("#qr-code-id-field").val(roomId);
-        triggerSearch(roomId);
+                // Füllt das Textfeld und startet die Suche automatisch
+                $("#qr-code-id-field").val(scannedCode);
+                triggerSearch(scannedCode);
 
-        setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
+                setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
+            } else {
+                // Wenn der QR-Code nicht dem Format entspricht, zeige eine kurze Nachricht
+                showNotification("Ungültiger QR-Code. Bitte nur Raum-IDs scannen.");
+            }
+        } else {
+            // Wenn ein anderer Barcode-Typ gescannt wird
+            showNotification("Falscher Code-Typ. Bitte nur QR-Codes scannen.");
+        }
     };
 
     function startCamera() {
         if (html5QrCode.isScanning) return;
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, () => {})
+
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 250 }
+        };
+
+        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
             .then(() => {
                 const videoElement = document.getElementById("reader").querySelector("video");
                 if (videoElement && videoElement.srcObject) {
@@ -131,14 +151,15 @@ $(function() {
         if (App.videoTrack) { App.torchOn = !App.torchOn; App.videoTrack.applyConstraints({ advanced: [{ torch: App.torchOn }] }); }
     });
 
-    // Event-Listener für das manuelle Eingabefeld
+    // Event-Listener für das manuelle Eingabefeld mit neuer Validierung
     $("#qr-code-id-field").on("keypress", function(e) {
         if (e.which === 13) { // Enter-Taste
             const manualId = $(this).val().trim();
-            if (/^\d{6}$/.test(manualId)) {
+            // Validierung auf 6-stellige Zahl, die mit 1 beginnt
+            if (/^1\d{5}$/.test(manualId)) {
                 triggerSearch(manualId);
             } else {
-                showInfoModal("Ungültige Eingabe", "Bitte eine 6-stellige ID eingeben.");
+                showInfoModal("Ungültige Eingabe", "Bitte eine 6-stellige ID, die mit '1' beginnt, eingeben.");
             }
         }
     });

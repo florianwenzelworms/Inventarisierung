@@ -3,9 +3,12 @@ $(function() {
         audioContext: null,
         videoTrack: null,
         torchOn: false,
-        scannedCustomId: null, // Speichert die zuletzt gescannte 6-stellige ID
-        initialLocation: null, // Speichert das Ergebnis des ersten Scans
-        assignRoomModal: new bootstrap.Modal(document.getElementById('assignRoomModal'))
+        scannedCustomId: null, // Speichert die zuletzt verarbeitete 6-stellige ID
+        initialLocation: null,
+        assignRoomModal: new bootstrap.Modal(document.getElementById('assignRoomModal')),
+        confirmationModal: new bootstrap.Modal(document.getElementById('confirmationModal')),
+        newRoomModal: new bootstrap.Modal(document.getElementById('newRoomModal')),
+        infoModal: new bootstrap.Modal(document.getElementById('infoModal'))
     };
 
     const html5QrCode = new Html5Qrcode("reader");
@@ -40,8 +43,6 @@ $(function() {
         }
         const building = location.buildingZone?.name || 'N/A';
         const branch = location.branch?.name || 'N/A';
-
-        // GEÄNDERT: Die Anzeige der IDs wurde angepasst
         const infoHtml = `
             <div class="card">
                 <div class="card-header bg-dark text-white"><h5 class="mb-0">${location.name || 'Unbekannter Raum'}</h5></div>
@@ -56,47 +57,38 @@ $(function() {
         $infoDisplay.html(infoHtml);
     }
 
+    // Zentrale Funktion zur Auslösung der Suche
+    function triggerSearch(id) {
+        App.scannedCustomId = id;
+        $("#assign-room-btn").prop('disabled', false);
+        $("#info-display").html('<div class="text-center"><div class="spinner-border text-primary"></div><p>Lade Details...</p></div>');
+
+        $.ajax({
+            url: `/get_location_details_by_id?id=${encodeURIComponent(id)}`,
+            type: 'GET',
+            success: function(response) {
+                App.initialLocation = response.success ? response.location : null;
+                displayLocationInfo(App.initialLocation);
+            },
+            error: function(jqXHR) {
+                App.initialLocation = null;
+                const msg = jqXHR.responseJSON?.message || "Serverfehler beim Abrufen der Raumdetails.";
+                $("#info-display").html(`<div class="alert alert-warning">${msg}</div>`);
+            }
+        });
+    }
+
     const onScanSuccess = (decodedText, decodedResult) => {
         html5QrCode.pause();
         playBeep();
 
-        const codeFormat = decodedResult.result.format.formatName;
-        if (codeFormat !== "QR_CODE" || decodedText.trim().length !== 6) {
-            showNotification("Bitte einen gültigen 6-stelligen Raum-QR-Code scannen.");
-            setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
-            return;
-        }
-
         const roomId = decodedText.trim();
-        App.scannedCustomId = roomId; // Die gescannte ID speichern
-        $("#assign-room-btn").prop('disabled', false); // Den Zuweisen-Button aktivieren
-        $("#info-display").html('<div class="text-center"><div class="spinner-border text-primary"></div><p>Lade Details...</p></div>');
 
-        $.ajax({
-            url: `/get_location_details_by_id?id=${encodeURIComponent(roomId)}`,
-            type: 'GET',
-            success: function(response) {
-                if (response.success) {
-                    App.initialLocation = response.location; // Das gefundene Objekt speichern
-                    displayLocationInfo(response.location);
-                } else {
-                    App.initialLocation = null;
-                    // GEÄNDERT: Zeigt jetzt die spezifische Fehlermeldung an
-                    $("#info-display").html(`<div class="alert alert-warning">${response.message}</div>`);
-                }
-            },
-            error: function(jqXHR) {
-                App.initialLocation = null;
-                if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
-                    $("#info-display").html(`<div class="alert alert-warning">${jqXHR.responseJSON.message}</div>`);
-                } else {
-                    $("#info-display").html('<div class="alert alert-danger">Serverfehler beim Abrufen der Raumdetails.</div>');
-                }
-            },
-            complete: function() {
-                setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
-            }
-        });
+        // Füllt das Textfeld und startet die Suche automatisch
+        $("#qr-code-id-field").val(roomId);
+        triggerSearch(roomId);
+
+        setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
     };
 
     function startCamera() {
@@ -128,8 +120,9 @@ $(function() {
     $(".controls").on("click", "button.start", startCamera);
     $(".controls").on("click", "button.stop", stopCamera);
     $(".controls").on("click", "button.reset", () => {
-        $("#info-display").html('<div class="card"><div class="card-body text-center text-muted">Bitte scannen Sie einen Raum-QR-Code.</div></div>');
+        $("#info-display").html('<div class="card"><div class="card-body text-center text-muted">Bitte scannen oder geben Sie eine Raum-ID ein.</div></div>');
         $("#assign-room-btn").prop('disabled', true);
+        $("#qr-code-id-field").val("");
         App.scannedCustomId = null;
         App.initialLocation = null;
     });
@@ -138,52 +131,136 @@ $(function() {
         if (App.videoTrack) { App.torchOn = !App.torchOn; App.videoTrack.applyConstraints({ advanced: [{ torch: App.torchOn }] }); }
     });
 
+    // Event-Listener für das manuelle Eingabefeld
+    $("#qr-code-id-field").on("keypress", function(e) {
+        if (e.which === 13) { // Enter-Taste
+            const manualId = $(this).val().trim();
+            if (/^\d{6}$/.test(manualId)) {
+                triggerSearch(manualId);
+            } else {
+                showInfoModal("Ungültige Eingabe", "Bitte eine 6-stellige ID eingeben.");
+            }
+        }
+    });
+
     $("#assign-room-btn").on("click", function() {
-        if (App.scannedCustomId) {
-            $("#scanned-id-label").text(App.scannedCustomId);
+        const currentId = App.scannedCustomId || $("#qr-code-id-field").val().trim();
+        if (currentId) {
+            $("#scanned-id-label").text(currentId);
             App.assignRoomModal.show();
         }
     });
 
-    $("#confirm-assignment-btn").on("click", function() {
-        const selectedLocationUuid = $("#room-select-dropdown").val();
-        if (!selectedLocationUuid) {
-            alert("Bitte wählen Sie einen Raum aus der Liste aus.");
+    $("#new-room-btn").on("click", function() {
+        App.assignRoomModal.hide();
+        App.newRoomModal.show();
+    });
+
+    $("#create-new-location-btn").on("click", function() {
+        const branchJson = $("#branch-select").val();
+        const buildingZoneJson = $("#building-zone-select").val();
+        const roomNumber = $("#room-number-input").val().trim();
+        if (!branchJson || !buildingZoneJson || !roomNumber) {
+            showInfoModal("Fehlende Informationen", "Bitte füllen Sie alle Felder aus.");
             return;
         }
+        const payload = {
+            branch: JSON.parse(branchJson),
+            buildingZone: JSON.parse(buildingZoneJson),
+            roomNumber: roomNumber
+        };
+        const $feedback = $("#assign-feedback");
+        $feedback.html('<div class="spinner-border spinner-border-sm"></div> Raum wird angelegt...').removeClass().addClass('alert alert-info').show();
+        App.newRoomModal.hide();
+        $.ajax({
+            url: "/create_new_location", type: "POST", data: JSON.stringify(payload),
+            contentType: "application/json; charset=utf-8", dataType: "json",
+            success: function(response) {
+                if (response.success && response.newLocation) {
+                    const newLocationUuid = response.newLocation.id;
+                    $feedback.html('<div class="spinner-border spinner-border-sm"></div> Raum angelegt. Weise jetzt ID zu...');
+                    $.ajax({
+                        url: "/assign_custom_id_to_room", type: "POST",
+                        data: JSON.stringify({ location_uuid: newLocationUuid, custom_room_id: App.scannedCustomId }),
+                        contentType: "application/json; charset=utf-8", dataType: "json",
+                        success: function(assignResponse) {
+                            const alertClass = assignResponse.success ? 'alert-success' : 'alert-danger';
+                            $feedback.removeClass('alert-info').addClass(`alert ${alertClass}`).text(assignResponse.message);
+                            if (assignResponse.success) showNotification("Raum angelegt und ID zugewiesen!", false);
+                        },
+                        error: function() { $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Fehler bei der ID-Zuweisung."); }
+                    });
+                } else {
+                    $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Fehler: " + response.message);
+                }
+            },
+            error: function() {
+                $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Ein schwerwiegender Serverfehler ist aufgetreten.");
+            }
+        });
+    });
 
-        let proceed = true;
-        if (App.initialLocation) {
-            proceed = confirm(`Die ID "${App.scannedCustomId}" ist bereits dem Raum "${App.initialLocation.name}" zugewiesen.\nMöchten Sie sie wirklich dem neu ausgewählten Raum zuweisen?`);
+    function showInfoModal(title, message) {
+        $("#infoModalLabel").text(title);
+        $("#infoModalBody").text(message);
+        App.infoModal.show();
+    }
+
+    function showConfirmationModal(message, onConfirm) {
+        $("#confirmationModalBody").text(message);
+        $("#confirm-overwrite-btn").one("click", function() {
+            App.confirmationModal.hide();
+            onConfirm();
+        });
+        App.confirmationModal.show();
+    }
+
+    $("#confirm-assignment-btn").on("click", function() {
+        const selectedOptionValue = $("#room-select-dropdown").val();
+        if (!selectedOptionValue) {
+            showInfoModal("Auswahl fehlt", "Bitte wählen Sie einen Raum aus der Liste aus.");
+            return;
         }
+        const selectedRoom = JSON.parse(selectedOptionValue);
+        const selectedLocationUuid = selectedRoom.id;
+        const existingCustomId = selectedRoom.optionalFields1?.text1;
+        const currentId = App.scannedCustomId || $("#qr-code-id-field").val().trim();
 
-        if (proceed) {
+        const doAssignment = () => {
             const $feedback = $("#assign-feedback");
             $feedback.html('<div class="spinner-border spinner-border-sm"></div> Zuweisung wird gespeichert...').removeClass().addClass('alert alert-info').show();
-
             $.ajax({
-                url: "/assign_custom_id_to_room",
-                type: "POST",
-                data: JSON.stringify({
-                    location_uuid: selectedLocationUuid,
-                    custom_room_id: App.scannedCustomId
-                }),
-                contentType: "application/json; charset=utf-8",
-                dataType: "json",
+                url: "/assign_custom_id_to_room", type: "POST",
+                data: JSON.stringify({ location_uuid: selectedLocationUuid, custom_room_id: currentId }),
+                contentType: "application/json; charset=utf-8", dataType: "json",
                 success: function(response) {
                     const alertClass = response.success ? 'alert-success' : 'alert-danger';
                     $feedback.removeClass('alert-info').addClass(alertClass).text(response.message);
-                    if (response.success) {
-                        showNotification("Zuweisung erfolgreich!", false);
-                    }
+                    if (response.success) showNotification("Zuweisung erfolgreich!", false);
                 },
-                error: function() {
-                    $feedback.removeClass('alert-info').addClass('alert-danger').text("Ein Serverfehler ist aufgetreten.");
-                },
-                complete: function() {
-                    App.assignRoomModal.hide();
-                }
+                error: function() { $feedback.removeClass('alert-info').addClass('alert alert-danger').text("Ein Serverfehler ist aufgetreten."); },
+                complete: function() { App.assignRoomModal.hide(); }
             });
+        };
+
+        const checkSourceAndAssign = () => {
+            if (App.initialLocation && App.initialLocation.id !== selectedLocationUuid) {
+                showConfirmationModal(
+                    `Die ID "${currentId}" ist bereits dem Raum "${App.initialLocation.name}" zugewiesen. Wirklich dem Raum "${selectedRoom.name}" zuweisen?`,
+                    doAssignment
+                );
+            } else {
+                doAssignment();
+            }
+        };
+
+        if (existingCustomId && existingCustomId.trim() !== '' && existingCustomId.trim() !== currentId) {
+            showConfirmationModal(
+                `Der Zielraum "${selectedRoom.name}" hat bereits die ID "${existingCustomId}". Wirklich mit "${currentId}" überschreiben?`,
+                checkSourceAndAssign
+            );
+        } else {
+            checkSourceAndAssign();
         }
     });
 

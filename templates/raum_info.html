@@ -4,7 +4,11 @@
     <div class="row">
         <!-- Linke Spalte: Kamera -->
         <div class="col-md-5">
-            <h4>Raum-QR-Code scannen</h4>
+            <div class="form-group mb-2">
+                <label for="qr-code-id-field" class="form-label">QR-Code ID</label>
+                <input type="text" class="form-control" id="qr-code-id-field" placeholder="ID scannen oder manuell eingeben...">
+            </div>
+            <h4>Kamera</h4>
             <div id="reader" style="width: 100%; border: 1px solid lightgray;"></div>
             <div id="scan-notification" style="display: none; text-align: center; font-weight: bold; margin-top: 5px; opacity: 0; transition: opacity 0.5s;"></div>
             <div class="controls mt-3">
@@ -21,11 +25,10 @@
             <div id="info-display">
                 <div class="card">
                     <div class="card-body text-center text-muted">
-                        Bitte scannen Sie einen Raum-QR-Code, um die Details anzuzeigen.
+                        Bitte scannen oder geben Sie eine Raum-ID ein.
                     </div>
                 </div>
             </div>
-            <!-- Button und Feedback-Bereich für die Zuweisung -->
             <div class="d-grid mt-3">
                 <button id="assign-room-btn" class="btn btn-primary" disabled>ID einem Raum zuweisen...</button>
             </div>
@@ -34,7 +37,7 @@
     </div>
 </div>
 
-<!-- Modal für die Raum-Zuweisung -->
+<!-- Modal 1: Raum-Zuweisung -->
 <div class="modal fade" id="assignRoomModal" tabindex="-1" aria-labelledby="assignRoomModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -43,17 +46,94 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p>Weisen Sie die gescannte ID <strong id="scanned-id-label"></strong> einem Raum zu:</p>
+        <p>Weisen Sie die ID <strong id="scanned-id-label"></strong> einem Raum zu:</p>
         <select class="form-select" id="room-select-dropdown">
-            <option selected disabled>Bitte einen Raum auswählen...</option>
+            <option value="" selected disabled>Bitte einen Raum auswählen...</option>
             {% for room in all_rooms %}
-                <option value="{{ room.id }}">{{ room.name }}</option>
+                <option value='{{ room|tojson|safe }}'>{{ room.name }}</option>
             {% endfor %}
         </select>
       </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" id="new-room-btn" class="btn btn-secondary">Neuer Raum</button>
+        <div>
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Abbrechen</button>
+            <button type="button" id="confirm-assignment-btn" class="btn btn-success">Zuweisung bestätigen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal 2: Neuer Raum anlegen -->
+<div class="modal fade" id="newRoomModal" tabindex="-1" aria-labelledby="newRoomModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="newRoomModalLabel">Neuen Raum anlegen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+            <label for="branch-select" class="form-label">Niederlassung</label>
+            <select class="form-select" id="branch-select">
+                <option value="" selected disabled>Bitte auswählen...</option>
+                {% for branch in branches %}
+                    <option value='{{ branch|tojson|safe }}'>{{ branch.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="building-zone-select" class="form-label">Gebäudebereich</label>
+            <select class="form-select" id="building-zone-select">
+                <option value="" selected disabled>Bitte auswählen...</option>
+                {% for zone in building_zones %}
+                    <option value='{{ zone|tojson|safe }}'>{{ zone.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="room-number-input" class="form-label">Raumnummer</label>
+            <input type="text" class="form-control" id="room-number-input" placeholder="z.B. 211">
+        </div>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-        <button type="button" id="confirm-assignment-btn" class="btn btn-success">Zuweisung bestätigen</button>
+        <button type="button" id="create-new-location-btn" class="btn btn-success">Anlegen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal 3: Überschreib-Bestätigung -->
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmationModalLabel">Bestätigung</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="confirmationModalBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" id="confirm-overwrite-btn" class="btn btn-danger">Trotzdem zuweisen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEU: Modal für einfache Benachrichtigungen -->
+<div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="infoModalLabel">Hinweis</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="infoModalBody">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
       </div>
     </div>
   </div>
@@ -64,6 +144,5 @@
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- Verweis auf die ausgelagerte JavaScript-Datei -->
 <script src="{{ url_for('static', filename='js/raum_info.js') }}"></script>
 {% endblock content %}

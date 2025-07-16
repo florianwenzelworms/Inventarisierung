@@ -7,8 +7,8 @@ services:
     # Startet den Container immer neu, es sei denn, er wird manuell gestoppt
     restart: unless-stopped
     # Lädt die Umgebungsvariablen aus einer .env-Datei
-    env_file:
-      - .env
+    # env_file:
+    # - .env
     # Mappt den Port 5000 des Containers auf den Port 5000 Ihres Computers
     ports:
       - "5000:5000"

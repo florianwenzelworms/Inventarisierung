@@ -7,6 +7,7 @@ from credentials import *
 import topdesk
 import json
 import os
+import re
 import io
 import csv
 import qrcode
@@ -615,16 +616,75 @@ def raum_info():
         flash("Sie müssen angemeldet sein, um auf diese Seite zuzugreifen.", "danger")
         return redirect(url_for('login'))
 
-    # NEU: Ruft die Liste aller Räume für das Dropdown-Menü ab
+    # Holt alle Daten, die für die Modals benötigt werden
     all_rooms = []
+    branches = []
+    building_zones = []
     try:
-        # Annahme: topdesk.getAllRooms() gibt eine Liste von Raum-Objekten zurück
         all_rooms = topdesk.getAllRooms()
+        branches = topdesk.getBranches()
+        building_zones = topdesk.getBuildingZones()
     except Exception as e:
-        flash(f"Fehler beim Laden der Raumliste von TopDesk: {e}", "warning")
+        flash(f"Fehler beim Laden der Daten von TopDesk: {e}", "warning")
 
-    # Rendert die neue HTML-Seite und übergibt die Raumliste
-    return render_template('raum_info.html', title='Raum-Information', all_rooms=all_rooms)
+    # Übergibt alle Listen an das HTML-Template
+    return render_template('raum_info.html', title='Raum-Information',
+                           all_rooms=all_rooms,
+                           branches=branches,
+                           building_zones=building_zones)
+
+
+@app.route('/create_new_location', methods=['POST'])
+def create_new_location():
+    """Nimmt Daten aus dem Modal entgegen und legt einen neuen Raum in TopDesk an."""
+    if not current_user.is_authenticated:
+        return jsonify({'success': False, 'message': 'Nicht autorisiert'}), 403
+
+    data = request.get_json()
+    branch = data.get('branch')
+    building_zone = data.get('buildingZone')
+    room_number = data.get('roomNumber')
+
+    if not all([branch, building_zone, room_number]):
+        return jsonify({'success': False, 'message': 'Unvollständige Daten erhalten.'}), 400
+
+    try:
+        # Logik zur Erstellung des Raumnamens, wie von Ihnen vorgegeben
+        building_zone_name = building_zone.get('name', '')
+        base_name = ''
+        if ' - ' in building_zone_name:
+            base_name = building_zone_name.split(' - ')[0]
+        else:
+            match = re.search(r'\d', building_zone_name)
+            if match:
+                base_name = building_zone_name[:match.start()].strip()
+            else:
+                base_name = building_zone_name
+
+        # Der finale Name wird aus dem Basisnamen und der Raumnummer zusammengesetzt
+        final_room_name = f"{base_name} - {room_number}"
+
+        # Die Funktion in topdesk.py aufrufen
+        new_location = topdesk.newLocation(
+            name=final_room_name,
+            roomnumber=room_number,
+            branch=branch,
+            buildingzone=building_zone
+        )
+
+        if new_location:
+            return jsonify({
+                'success': True,
+                'message': f"Raum '{final_room_name}' wurde erfolgreich angelegt.",
+                'newLocation': new_location  # Gibt den neuen Raum zurück
+            })
+        else:
+            return jsonify({'success': False, 'message': "Fehler beim Anlegen des Raums in TopDesk."}), 500
+
+    except Exception as e:
+        error_message = f"Fehler bei der Raumerstellung: {e}"
+        print(error_message)
+        return jsonify({'success': False, 'message': error_message}), 500
 
 
 @app.route('/assign_custom_id_to_room', methods=['POST'])

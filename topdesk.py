@@ -1,6 +1,7 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import json
+import re
 from credentials import TOPDESK_API_URL, TOPDESK_API_USER, TOPDESK_API_PASS, HTTP_PROXY
 
 
@@ -205,6 +206,63 @@ def updateRoomId(location_uuid, custom_room_id):
     except json.JSONDecodeError as e:
         # Fängt Fehler ab, wenn die Antwort vom Server kein gültiges JSON ist
         print(f"Fehler beim Parsen der JSON-Antwort in updateRoomId für Standort-UUID '{location_uuid}': {e}")
+        return None
+
+
+def getBuildingZones():
+    """Holt eine Liste aller Gebäudebereiche."""
+    url = f"{base_url}/tas/api/locations/building_zones"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=20)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getBuildingZones: {e}")
+        return [] # Gibt eine leere Liste bei Fehlern zurück
+
+
+def getBranches():
+    """Holt eine Liste aller Niederlassungen."""
+    url = f"{base_url}/tas/api/branches"
+    try:
+        response = requests.get(url, auth=auth, proxies=proxies, timeout=20)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in getBranches: {e}")
+        return [] # Gibt eine leere Liste bei Fehlern zurück
+
+
+def newLocation(name, roomnumber, branch, buildingzone):
+    """Legt einen neuen Raum an"""
+    url = f"{base_url}/tas/api/locations"
+
+    # Es werden Raumname, Raumnummer, Niederlassung und Gebäudebereich benötigt.
+    print('branch: ', branch)
+    print('buildingzone: ', buildingzone)
+    print('name: ', name)
+    print('roomnumber: ', roomnumber)
+    payload = json.dumps({
+        'branch': {
+            'id': branch['id'],
+            'name': branch['name']
+        },
+        'buildingZone': {
+            'id': buildingzone['id'],
+            'name': buildingzone['name']
+        },
+        'roomNumber': roomnumber,
+        'name': name
+    })
+
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        response = requests.post(url, headers=headers, data=payload, auth=auth, proxies=proxies, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"API Fehler in newLocation: {e}")
         return None
 
 

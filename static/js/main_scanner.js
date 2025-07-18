@@ -6,10 +6,9 @@ $(function() {
         checklist: [],
         missingAssets: [],
         scannerState: null,
-        importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal'))
+        importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal')),
+        newAssetsModal: new bootstrap.Modal(document.getElementById('newAssetsModal'))
     };
-
-    const html5QrCode = new Html5Qrcode("reader");
 
     function renderScannedItems() {
         const $list = $(".thumbnails");
@@ -81,19 +80,30 @@ $(function() {
         App.importConfirmModal.hide();
         const $button = $("#start-import-btn");
         $button.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Importiere...');
+
         const payload = [{"Text": App.raumName}, ...App.scannedItems.map(code => ({"code": code}))];
         if (withRemove) {
             const missingIds = App.missingAssets.map(asset => asset.id || asset.unid).filter(id => id);
             if (missingIds.length > 0) payload.push({"missingAssetIds": missingIds});
         }
+
         $.ajax({
-            url: "/direct_import", type: "POST", data: JSON.stringify(payload), contentType: "application/json; charset=utf-8", dataType: "json",
+            url: "/direct_import",
+            type: "POST",
+            data: JSON.stringify(payload),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
             success: function(response) {
-                if (response.success && response.redirect_url) {
-                    window.location.href = response.redirect_url;
+                console.log("Antwort vom Server empfangen:", response);
+
+                if (response.not_found_codes && response.not_found_codes.length > 0) {
+                    populateNewAssetsModal(response.not_found_codes);
+                    App.newAssetsModal.show();
+                    $("#new-assets-modal-submit").data('redirect-url', response.redirect_url);
                 } else {
-                    alert("Ein Fehler ist aufgetreten: " + (response.message || "Unbekannter Fehler"));
-                    $button.prop('disabled', false).text('Import nach TopDesk starten');
+                    if (response.redirect_url) {
+                        window.location.href = response.redirect_url;
+                    }
                 }
             },
             error: function() {
@@ -103,6 +113,28 @@ $(function() {
         });
     }
 
+    function populateNewAssetsModal(codes) {
+        const $modalBody = $("#new-assets-modal-body");
+        const $templateSelect = $("#asset-type-template");
+        $modalBody.empty();
+        codes.forEach(code => {
+            const rowHtml = `
+                <div class="row mb-2 align-items-center">
+                    <div class="col-5">
+                        <label class="form-label mb-0">${code}</label>
+                    </div>
+                    <div class="col-7">
+                        <select class="form-select form-select-sm asset-type-select" data-asset-code="${code}">
+                            ${$templateSelect.html()}
+                        </select>
+                    </div>
+                </div>
+            `;
+            $modalBody.append(rowHtml);
+        });
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
     const onScanSuccess = (decodedText, decodedResult) => {
@@ -196,9 +228,47 @@ $(function() {
         }
     });
 
+    $("#new-assets-modal-submit").on("click", function() {
+        const newAssets = [];
+        $(".asset-type-select").each(function() {
+            newAssets.push({
+                code: $(this).data('asset-code'),
+                type: $(this).val()
+            });
+        });
+
+        const $button = $(this);
+        $button.prop('disabled', true);
+
+        $.ajax({
+            url: "/send_new_asset_report",
+            type: "POST",
+            data: JSON.stringify({ new_assets: newAssets, room_name: App.raumName }),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            success: function(response) {
+                if (response.success) {
+                    const redirectUrl = $("#new-assets-modal-submit").data('redirect-url');
+                    if (redirectUrl) {
+                        window.location.href = redirectUrl;
+                    }
+                } else {
+                    alert("Fehler beim Senden des Berichts: " + response.message);
+                }
+            },
+            error: function() {
+                alert("Serverfehler beim Senden des Berichts.");
+            },
+            complete: function() {
+                $button.prop('disabled', false);
+                App.newAssetsModal.hide();
+            }
+        });
+    });
+
     $("#import-update-only-btn").on("click", () => runImport(false));
     $("#import-remove-missing-btn").on("click", () => runImport(true));
 
     renderScannedItems();
-    startCamera(); // Kamera automatisch starten
+    startCamera();
 });

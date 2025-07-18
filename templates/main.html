@@ -72,6 +72,34 @@
   </div>
 </div>
 
+<!-- NEU: Modal zur Zuweisung von Gerätetypen für unbekannte Assets -->
+<div class="modal fade" id="newAssetsModal" tabindex="-1" aria-labelledby="newAssetsModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="newAssetsModalLabel">Unbekannte Assets gefunden</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="new-assets-modal-body">
+        <p>Bitte weisen Sie den folgenden unbekannten Assets einen Gerätetyp zu:</p>
+        <!-- Inhalt wird von JS dynamisch gefüllt -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button type="button" id="new-assets-modal-submit" class="btn btn-primary">Bericht senden</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEU: Verstecktes Template für die Dropdown-Optionen -->
+<select id="asset-type-template" style="display: none;">
+    <option value="" selected>Typ auswählen...</option>
+    {% for template in templates %}
+        <option value="{{ template }}">{{ template }}</option>
+    {% endfor %}
+</select>
+
 <!-- Skripte am Ende der Datei -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>

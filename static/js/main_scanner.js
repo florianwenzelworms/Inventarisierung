@@ -7,8 +7,36 @@ $(function() {
         missingAssets: [],
         scannerState: null,
         importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal')),
-        newAssetsModal: new bootstrap.Modal(document.getElementById('newAssetsModal'))
+        newAssetsModal: new bootstrap.Modal(document.getElementById('newAssetsModal')),
+        // NEU: AudioContext für den Beep-Ton hinzugefügt
+        audioContext: null
     };
+
+    // NEU: Funktion zum Abspielen des Beep-Tons
+    function playBeep() {
+        try {
+            if (!App.audioContext) {
+                App.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const oscillator = App.audioContext.createOscillator();
+            const gainNode = App.audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(App.audioContext.destination);
+
+            gainNode.gain.setValueAtTime(0, App.audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, App.audioContext.currentTime + 0.01);
+
+            oscillator.frequency.setValueAtTime(880, App.audioContext.currentTime); // A5-Note
+            oscillator.type = 'square';
+            oscillator.start(App.audioContext.currentTime);
+
+            gainNode.gain.exponentialRampToValueAtTime(0.00001, App.audioContext.currentTime + 0.1);
+            oscillator.stop(App.audioContext.currentTime + 0.1);
+        } catch(e) {
+            console.error("Beep konnte nicht abgespielt werden:", e);
+        }
+    }
 
     function renderScannedItems() {
         const $list = $(".thumbnails");
@@ -141,6 +169,9 @@ $(function() {
         if (App.scannerState === 'PAUSED') return;
         App.scannerState = 'PAUSED';
         html5QrCode.pause();
+
+        // NEU: Beep-Ton wird hier abgespielt
+        playBeep();
 
         const codeFormat = decodedResult.result.format.formatName;
 

@@ -14,18 +14,21 @@ $(function() {
     const html5QrCode = new Html5Qrcode("reader");
 
     function playBeep() {
+        // Prüft, ob der AudioContext bereit ist.
+        if (!audioContext) {
+            console.warn("AudioContext not initialized. Cannot play beep. Please click anywhere on the page first.");
+            return;
+        }
         try {
-            if (!App.audioContext) App.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = App.audioContext.createOscillator();
-            const gainNode = App.audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(App.audioContext.destination);
-            gainNode.gain.setValueAtTime(0, App.audioContext.currentTime);
-            gainNode.gain.linearRampToValueAtTime(1, App.audioContext.currentTime + 0.01);
-            oscillator.frequency.setValueAtTime(880, App.audioContext.currentTime);
-            oscillator.start(App.audioContext.currentTime);
-            oscillator.stop(App.audioContext.currentTime + 0.1);
-        } catch(e) {}
+            const oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine'; // Ein weicherer, angenehmerer Ton
+            oscillator.frequency.setValueAtTime(900, audioContext.currentTime); // Eine klare, mittlere Frequenz
+            oscillator.connect(audioContext.destination);
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.1); // Dauer des Tons: 100ms
+        } catch(e) {
+            console.error("Beep konnte nicht abgespielt werden:", e);
+        }
     }
 
     function showNotification(message, isError = true) {

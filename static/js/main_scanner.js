@@ -7,25 +7,49 @@ $(function() {
         missingAssets: [],
         scannerState: null,
         importConfirmModal: new bootstrap.Modal(document.getElementById('importConfirmModal')),
-        newAssetsModal: new bootstrap.Modal(document.getElementById('newAssetsModal')),
-        // NEU: AudioContext für den Beep-Ton hinzugefügt
-        audioContext: null
+        newAssetsModal: new bootstrap.Modal(document.getElementById('newAssetsModal'))
     };
 
-    // NEU: Funktion zum Abspielen des Beep-Tons
+    let audioContext = null;
+    $(document).one('click', function() {
+        if (!audioContext) {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            } catch(e) {
+                console.error("Could not create AudioContext:", e);
+            }
+        }
+    });
+
     function playBeep() {
+        if (!audioContext) return;
         try {
-            if (!App.audioContext) App.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = App.audioContext.createOscillator();
-            const gainNode = App.audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(App.audioContext.destination);
-            gainNode.gain.setValueAtTime(0, App.audioContext.currentTime);
-            gainNode.gain.linearRampToValueAtTime(1, App.audioContext.currentTime + 0.01);
-            oscillator.frequency.setValueAtTime(880, App.audioContext.currentTime);
-            oscillator.start(App.audioContext.currentTime);
-            oscillator.stop(App.audioContext.currentTime + 0.1);
-        } catch(e) {}
+            const oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(900, audioContext.currentTime);
+            oscillator.connect(audioContext.destination);
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.1);
+        } catch(e) {
+            console.error("Beep konnte nicht abgespielt werden:", e);
+        }
+    }
+
+    // Funktion zur Anzeige von client-seitigen Flash-Nachrichten
+    function showFlash(message, category = 'danger') {
+        const flashId = `flash-${Date.now()}`;
+        const flashHtml = `
+            <div id="${flashId}" class="alert alert-${category} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        $('#flash-container').append(flashHtml);
+
+        // Automatisches Ausblenden nach 5 Sekunden
+        setTimeout(() => {
+            $(`#${flashId}`).alert('close');
+        }, 5000);
     }
 
     function renderScannedItems() {
@@ -112,8 +136,6 @@ $(function() {
             contentType: "application/json; charset=utf-8",
             dataType: "json",
             success: function(response) {
-                console.log("Antwort vom Server empfangen:", response);
-
                 if (response.not_found_codes && response.not_found_codes.length > 0) {
                     populateNewAssetsModal(response.not_found_codes);
                     App.newAssetsModal.show();
@@ -125,7 +147,7 @@ $(function() {
                 }
             },
             error: function() {
-                alert("Ein schwerwiegender Serverfehler ist aufgetreten.");
+                showFlash("Ein schwerwiegender Serverfehler ist aufgetreten.");
                 $button.prop('disabled', false).text('Import nach TopDesk starten');
             }
         });
@@ -159,10 +181,7 @@ $(function() {
         if (App.scannerState === 'PAUSED') return;
         App.scannerState = 'PAUSED';
         html5QrCode.pause();
-
-        // NEU: Beep-Ton wird hier abgespielt
         playBeep();
-
         const codeFormat = decodedResult.result.format.formatName;
 
         if (codeFormat === "QR_CODE") {
@@ -182,15 +201,15 @@ $(function() {
                         $("#raumfeld").val(displayText);
                         fetchChecklist(App.raumName);
                     } else {
-                        alert("Fehler: " + response.message);
+                        showFlash("Fehler: " + response.message);
                         $("#raumfeld").val("");
                     }
                 },
                 error: function(jqXHR) {
                     if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
-                        alert("Fehler: " + jqXHR.responseJSON.message);
+                        showFlash("Fehler: " + jqXHR.responseJSON.message);
                     } else {
-                        alert("Serverfehler beim Abrufen der Raumdetails.");
+                        showFlash("Serverfehler beim Abrufen der Raumdetails.");
                     }
                     $("#raumfeld").val("");
                 },
@@ -234,7 +253,7 @@ $(function() {
             if (manualEntry) {
                 App.raumName = manualEntry;
             } else {
-                alert("Bitte zuerst einen gültigen Raum scannen oder eingeben."); return;
+                showFlash("Bitte zuerst einen gültigen Raum scannen oder eingeben."); return;
             }
         }
         App.missingAssets = App.checklist.filter(asset => !App.scannedItems.includes(asset?.name || 'N/A'));
@@ -274,11 +293,11 @@ $(function() {
                         window.location.href = redirectUrl;
                     }
                 } else {
-                    alert("Fehler beim Senden des Berichts: " + response.message);
+                    showFlash("Fehler beim Senden des Berichts: " + response.message);
                 }
             },
             error: function() {
-                alert("Serverfehler beim Senden des Berichts.");
+                showFlash("Serverfehler beim Senden des Berichts.");
             },
             complete: function() {
                 $button.prop('disabled', false);

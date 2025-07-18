@@ -1,5 +1,8 @@
 {% extends "layout.html" %}
 {% block content %}
+<!-- NEU: Container für die dynamischen Flash-Nachrichten -->
+<div id="flash-container" class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 1056;"></div>
+
 <div class="container mt-4">
     <!-- Obere Reihe für Scanner und gescannte Items -->
     <div class="row mb-4">
@@ -72,7 +75,7 @@
   </div>
 </div>
 
-<!-- NEU: Modal zur Zuweisung von Gerätetypen für unbekannte Assets -->
+<!-- Modal zur Zuweisung von Gerätetypen für unbekannte Assets -->
 <div class="modal fade" id="newAssetsModal" tabindex="-1" aria-labelledby="newAssetsModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -92,7 +95,7 @@
   </div>
 </div>
 
-<!-- NEU: Verstecktes Template für die Dropdown-Optionen -->
+<!-- Verstecktes Template für die Dropdown-Optionen -->
 <select id="asset-type-template" style="display: none;">
     <option value="" selected>Typ auswählen...</option>
     {% for template in templates %}

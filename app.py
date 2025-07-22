@@ -1,17 +1,13 @@
-from flask import Flask, render_template, flash, redirect, url_for, request, send_file, make_response, jsonify
+from flask import Flask, render_template, flash, redirect, url_for, request, jsonify
 from flask_login import LoginManager, UserMixin, login_user, current_user, logout_user
 from flask_mail import Mail, Message
 from forms import LoginForm
 import ldap3
 from credentials import *
 import topdesk
-import json
-import os
 import re
 import io
 import csv
-import qrcode
-from PIL import Image, ImageDraw, ImageFont
 
 
 app = Flask(__name__)
@@ -35,14 +31,6 @@ LDAP_PASS = LDAP_PASS
 LDAP_SERVER = LDAP_SERVER
 AD_DOMAIN = AD_DOMAIN
 SEARCH_BASE = SEARCH_BASE
-
-# --- Neue Konfiguration für die QR-Code-Erstellung ---
-# Definiert den Ordner, in dem die Bilder gespeichert werden (innerhalb von 'static')
-QR_CODE_OUTPUT_DIR = os.path.join(app.static_folder, 'raumschilder')
-# Pfad zur Logo-Datei (muss in static/logo.png liegen)
-LOGO_FILE = os.path.join(app.static_folder, 'logo.png')
-# Pfad zur Schriftart (muss im Projekt-Hauptverzeichnis liegen oder System-Pfad sein)
-FONT_FILE = "arial.ttf"
 
 
 class User(UserMixin):

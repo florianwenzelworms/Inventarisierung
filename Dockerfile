@@ -23,4 +23,4 @@ EXPOSE 5000
 # -w 4 startet 4 "Worker"-Prozesse
 # -b 0.0.0.0:5000 bindet den Server an alle Netzwerkschnittstellen auf Port 5000
 # app:app bedeutet: in der Datei app.py, finde die Flask-Instanz namens app
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "--certfile=cert.pem", "--keyfile=key.pem", "app:app"]

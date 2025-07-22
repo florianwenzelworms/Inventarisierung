@@ -12,8 +12,4 @@ services:
     # Mappt den Port 5000 des Containers auf den Port 5000 Ihres Computers
     ports:
       - "5000:5000"
-    # Mappt den Ordner für die generierten Raumschilder, damit sie auf Ihrem Computer erhalten bleiben
-    volumes:
-      - ./static/raumschilder:/app/static/raumschilder
-    # Gibt dem Container einen eindeutigen Namen
     container_name: inventar-app

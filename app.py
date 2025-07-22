@@ -165,26 +165,69 @@ def direct_import():
         flash("Import fehlgeschlagen: Kein Raum angegeben.", "danger")
         return jsonify({'success': False, 'redirect_url': url_for('home')})
 
+    # Listen zum Sammeln der Ergebnisse für detailliertes Feedback
     not_found_codes = []
+    moved_assets = []
+    already_correct_assets = []
+    removed_assets_feedback = []
+    errors = []
 
     try:
         location_details = topdesk.getLocation(room_name)
         if not location_details:
             raise Exception(f"Ziel-Raum '{room_name}' nicht in TopDesk gefunden.")
 
-        # ... (Ihre Logik zum Verschieben und Entfernen von Assets bleibt hier) ...
+        new_location_id = location_details['id']
+        new_branch_id = location_details['branch']['id']
 
-        # KORRIGIERT: Die Verarbeitungsschleife ist jetzt robust und sammelt alle unbekannten Codes
+        # --- VERARBEITUNG: FEHLENDE ASSETS ENTFERNEN ---
+        if missing_asset_uuids:
+            try:
+                success = topdesk.unlinkAssignments(new_location_id, missing_asset_uuids)
+                if success:
+                    removed_assets_feedback.append(
+                        f"{len(missing_asset_uuids)} fehlende Assets wurden aus Raum '{room_name}' entfernt.")
+                else:
+                    errors.append("Ein Fehler ist beim gebündelten Entfernen der Assets aufgetreten.")
+            except Exception as e:
+                errors.append(f"Fehler bei der gebündelten Entfernung: {str(e)}")
+
+        # --- VERARBEITUNG: GESCANnte ASSETS AKTUALISIEREN ---
         for code in scanned_items:
-            # Diese Prüfung geschieht für jedes einzelne Asset
-            asset_uuid = topdesk.getAsset(code)
-            if not asset_uuid:
-                if code not in not_found_codes:
-                    not_found_codes.append(code)
+            try:
+                asset_uuid = topdesk.getAsset(code)
+                if not asset_uuid:
+                    if code not in not_found_codes:
+                        not_found_codes.append(code)
+                    continue
 
-        flash("Import-Prüfung abgeschlossen.", "info")
+                current_assignments = topdesk.getAssignments(asset_uuid)
+                current_locations = current_assignments.get('locations', [])
+                is_correctly_placed = any(
+                    loc.get('location', {}).get('id') == new_location_id for loc in current_locations)
 
-        # Gibt die VOLLSTÄNDIGE Liste der nicht gefundenen Codes an das Frontend zurück
+                if is_correctly_placed:
+                    already_correct_assets.append(code)
+                else:
+                    if current_locations:
+                        old_location_id = current_locations[0]['location']['id']
+                        topdesk.unlinkAssignments(old_location_id, [asset_uuid])
+                    topdesk.addAssignments(asset_uuid, new_branch_id, new_location_id)
+                    moved_assets.append(code)
+            except Exception as e:
+                errors.append(f"Fehler bei Asset '{code}': {str(e)}")
+
+        # --- DETAILLIERTE FLASH-NACHRICHTEN AM ENDE ERSTELLEN ---
+        if moved_assets:
+            flash(f"Erfolgreich verschoben ({len(moved_assets)}): {', '.join(moved_assets)}", "success")
+        if already_correct_assets:
+            flash(f"Bereits korrekt zugeordnet ({len(already_correct_assets)}): {', '.join(already_correct_assets)}",
+                  "info")
+        if removed_assets_feedback:
+            flash(removed_assets_feedback[0], "warning")
+        if errors:
+            flash(f"{len(errors)} Fehler aufgetreten: {'; '.join(errors)}", "danger")
+
         return jsonify({
             'success': True,
             'redirect_url': url_for('home'),

@@ -175,7 +175,14 @@ $(function() {
     }
 
     const html5QrCode = new Html5Qrcode("reader");
-    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        // NEU: Diese Zeile schlägt dem Browser vor, den Autofokus zu deaktivieren.
+        advanced: [{
+            focusMode: "manual"
+        }]
+    };
 
     const onScanSuccess = (decodedText, decodedResult) => {
         if (App.scannerState === 'PAUSED') return;

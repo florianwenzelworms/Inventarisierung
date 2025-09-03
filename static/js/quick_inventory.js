@@ -138,7 +138,7 @@ $(function() {
 
     function startCamera() {
         if (html5QrCode.isScanning) return;
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, () => {})
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 },advanced: [{focusMode: "manual"}] }, onScanSuccess, () => {})
             .then(() => {
                 const videoElement = document.getElementById("reader").querySelector("video");
                 if (videoElement && videoElement.srcObject) {

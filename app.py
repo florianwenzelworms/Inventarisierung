@@ -5,14 +5,65 @@ from forms import LoginForm
 import ldap3
 from credentials import *
 import topdesk
+import os
 import re
 import io
 import csv
+import logging
+from logging.handlers import RotatingFileHandler
 
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = SECRET_KEY
 login_manager = LoginManager(app)
+
+# --- Logging Konfiguration ---
+try:
+    if not os.path.exists('logs'):
+        os.mkdir('logs')
+
+    # 1. Logger für Benutzeraktionen (Audit Log) erstellen
+    audit_log_file = 'logs/audit.log'
+    audit_logger = logging.getLogger('audit')
+    audit_logger.setLevel(logging.INFO)
+
+    # Rotiert die Log-Datei, wenn sie 5MB groß wird, und behält bis zu 10 alte Dateien.
+    audit_handler = RotatingFileHandler(audit_log_file, maxBytes=1024 * 1024 * 5, backupCount=10, encoding='utf-8')
+
+    # Formatiert die Log-Nachricht: Zeitstempel - Benutzername - Aktion
+    audit_formatter = logging.Formatter('%(asctime)s - %(user)s - [%(caller)s] - %(message)s', defaults={'user': 'System', 'caller': 'unbekannt'})
+    audit_handler.setFormatter(audit_formatter)
+
+    # Verhindert, dass Logs doppelt an den Root-Logger gesendet werden
+    audit_logger.propagate = False
+
+    # Fügt den Handler nur hinzu, wenn noch keiner vorhanden ist, um Duplikate zu vermeiden
+    if not audit_logger.handlers:
+        audit_logger.addHandler(audit_handler)
+
+except Exception as e:
+    print(f"WARNUNG: Der Audit-Logger konnte nicht konfiguriert werden. Fehler: {e}")
+    # Erstellt einen Dummy-Logger, damit die App nicht abstürzt, falls das Logging fehlschlägt
+    audit_logger = logging.getLogger('audit_dummy')
+    audit_logger.addHandler(logging.NullHandler())
+
+
+def log_event(action_message, log_type='SYSTEM'):
+    """
+    Protokolliert eine Aktion.
+
+    Args:
+        action_message (str): Die Log-Nachricht.
+        log_type (str): 'USER' für Benutzeraktionen, 'SYSTEM' für Systemereignisse.
+    """
+    user_id = current_user.id if current_user.is_authenticated else 'Anonymous'
+
+    caller_name = "Kein Request-Kontext"
+    if request:
+        caller_name = request.endpoint
+
+    audit_logger.info(action_message, extra={'user': user_id, 'caller': caller_name, 'log_type': log_type})
+
 
 mail_settings = {
     "MAIL_SERVER": MAIL_SERVER,
@@ -67,7 +118,7 @@ def authenticate_ldap(username, password):
                               check_names=True,
                               raise_exceptions=True) as conn:
             if conn.bind():
-                print("Authentication successful")
+                log_event("Authentication successful")
                 user = User(username)
                 # JETZT die zusätzlichen Daten abrufen und dem Objekt hinzufügen
                 try:
@@ -75,17 +126,17 @@ def authenticate_ldap(username, password):
                     user_details = get_user_data(username)
                     if user_details:
                         user.cn, user.mail, user.department, user.groups = user_details
-                        print(f"User data loaded for {username}: Groups - {user.groups}")
+                        log_event(f"User data loaded for {username}: Groups - {user.groups}")
                         return user
                     else:
                         # Falls aus irgendeinem Grund keine Daten gefunden wurden
-                        print(f"Authentication successful, but could not retrieve data for {username}")
+                        log_event(f"Authentication successful, but could not retrieve data for {username}")
                         return False
                 except Exception as e:
-                    print(f"Error retrieving user data: {e}")
+                    log_event(f"Error retrieving user data: {e}")
                     return False
     except Exception as e:
-        print(f"LDAP authentication failed: {e}")
+        log_event(f"LDAP authentication failed: {e}")
     return False
 
 
@@ -135,15 +186,18 @@ def login():
         user = authenticate_ldap(form.username.data, form.password.data)
         if user and "1.05" in user.groups:
             login_user(user, remember=True)
+            log_event("Login erfolgreich.")
             flash("Eingeloggt als " + user.id + "!", "success")
             return redirect(url_for('home'))
         else:
+            log_event(f"Fehlgeschlagener Login-Versuch für Benutzer '{form.username.data}'.")
             flash("Falsches Passwort oder Benutzername", "danger")
     return render_template("login.html", title="login", form=form)
 
 
 @app.route("/logout", methods=["GET"])
 def logout():
+    log_event("Logout erfolgreich.")
     logout_user()
     return redirect(url_for("login"))
 
@@ -162,6 +216,7 @@ def direct_import():
     missing_asset_uuids = missing_items_payload['missingAssetIds'] if missing_items_payload else []
 
     if not room_name:
+        log_event("Import fehlgeschlagen: Kein Raum angegeben.")
         flash("Import fehlgeschlagen: Kein Raum angegeben.", "danger")
         return jsonify({'success': False, 'redirect_url': url_for('home')})
 
@@ -175,6 +230,7 @@ def direct_import():
     try:
         location_details = topdesk.getLocation(room_name)
         if not location_details:
+            log_event(f"Ziel-Raum '{room_name}' nicht in TopDesk gefunden.")
             raise Exception(f"Ziel-Raum '{room_name}' nicht in TopDesk gefunden.")
 
         new_location_id = location_details['id']
@@ -185,11 +241,14 @@ def direct_import():
             try:
                 success = topdesk.unlinkAssignments(new_location_id, missing_asset_uuids)
                 if success:
+                    log_event(f"Erfolgreich {len(missing_asset_uuids)} Assets ({', '.join(missing_asset_uuids)}) aus Raum {room_name} entfernt")
                     removed_assets_feedback.append(
                         f"{len(missing_asset_uuids)} fehlende Assets wurden aus Raum '{room_name}' entfernt.")
                 else:
+                    log_event("Ein Fehler ist beim gebündelten Entfernen der Assets aufgetreten.")
                     errors.append("Ein Fehler ist beim gebündelten Entfernen der Assets aufgetreten.")
             except Exception as e:
+                log_event(f"Fehler bei der gebündelten Entfernung: {str(e)}")
                 errors.append(f"Fehler bei der gebündelten Entfernung: {str(e)}")
 
         # --- VERARBEITUNG: GESCANnte ASSETS AKTUALISIEREN ---
@@ -215,17 +274,21 @@ def direct_import():
                     topdesk.addAssignments(asset_uuid, new_branch_id, new_location_id)
                     moved_assets.append(code)
             except Exception as e:
+                log_event(f"Fehler bei Asset '{code}': {str(e)}")
                 errors.append(f"Fehler bei Asset '{code}': {str(e)}")
 
         # --- DETAILLIERTE FLASH-NACHRICHTEN AM ENDE ERSTELLEN ---
         if moved_assets:
+            log_event(f"Erfolgreich verschoben ({len(moved_assets)}): {', '.join(moved_assets)}")
             flash(f"Erfolgreich verschoben ({len(moved_assets)}): {', '.join(moved_assets)}", "success")
         if already_correct_assets:
+            log_event(f"Bereits korrekt zugeordnet ({len(already_correct_assets)}): {', '.join(already_correct_assets)}")
             flash(f"Bereits korrekt zugeordnet ({len(already_correct_assets)}): {', '.join(already_correct_assets)}",
                   "info")
         if removed_assets_feedback:
             flash(removed_assets_feedback[0], "warning")
         if errors:
+            log_event(f"{len(errors)} Fehler aufgetreten: {'; '.join(errors)}")
             flash(f"{len(errors)} Fehler aufgetreten: {'; '.join(errors)}", "danger")
 
         return jsonify({
@@ -235,6 +298,7 @@ def direct_import():
         })
 
     except Exception as e:
+        log_event(f"Ein schwerwiegender Fehler ist aufgetreten: {e}")
         flash(f"Ein schwerwiegender Fehler ist aufgetreten: {e}", "danger")
         return jsonify({'success': False, 'redirect_url': url_for('home')})
 
@@ -250,11 +314,13 @@ def send_new_asset_report():
     room_name = data.get('room_name', 'Unbekannt')
 
     if not new_assets:
+        log_event('Keine Daten erhalten')
         return jsonify({'success': False, 'message': 'Keine Daten erhalten'}), 400
 
     try:
         recipient_email = str(current_user.mail[0]) if current_user.mail and len(current_user.mail) > 0 else None
         if not recipient_email:
+            log_event("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
             raise Exception("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
 
         email_body = f"Hallo {current_user.id},\n\n"
@@ -271,10 +337,12 @@ def send_new_asset_report():
         )
         mail.send(msg)
 
+        log_event("E-Mail-Bericht erfolgreich versendet.")
         flash("Bericht für neue Assets erfolgreich per E-Mail versendet.", "success")
         return jsonify({'success': True, 'message': 'E-Mail-Bericht erfolgreich versendet.'})
 
     except Exception as e:
+        log_event(str(e))
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -287,9 +355,8 @@ def get_assets_for_room():
     # 2. Den 'room'-Parameter aus der URL lesen (z.B. ?room=Raumname)
     room_name = request.args.get('room')
     if not room_name:
+        log_event('Kein Raumname in der Anfrage gefunden.')
         return jsonify({'success': False, 'message': 'Kein Raumname in der Anfrage gefunden.'}), 400
-
-    print(f"Anfrage für Assets in Raum erhalten: '{room_name}'")
 
     try:
         # 3. Zuerst die ID des Raumes anhand des Namens von TopDesk holen
@@ -297,24 +364,22 @@ def get_assets_for_room():
         location_details = topdesk.getLocation(room_name)
         # 4. Prüfen, ob der Raum gefunden wurde
         if not location_details or 'id' not in location_details:
-            print(f"Raum '{room_name}' nicht in TopDesk gefunden.")
+            log_event(f"Raum '{room_name}' nicht in TopDesk gefunden.")
             return jsonify({'success': False, 'message': f'Raum "{room_name}" nicht in TopDesk gefunden.'}), 404
 
         location_id = location_details['id']
-        print(f"Raum-ID für '{room_name}' ist: {location_id}")
 
         # 5. Mit der Raum-ID alle zugehörigen Assets abrufen
         # Hier wird die Original-Funktion aus Ihrer topdesk.py aufgerufen
         assets_in_room = topdesk.getLocationAssets(location_id)
-        print(assets_in_room)
+        log_event(f'Assets für Raum {room_name} abgefragt')
         # 6. Die gefundene Asset-Liste als JSON an das Frontend zurückgeben
-        print(f"{len(assets_in_room)} Assets gefunden.")
         return jsonify({'success': True, 'assets': assets_in_room})
 
     except Exception as e:
         # Fängt alle anderen Fehler ab, die in den topdesk-Funktionen auftreten könnten
         error_message = f"Ein Fehler ist bei der Verarbeitung der TopDesk-Anfrage aufgetreten: {e}"
-        print(error_message)
+        log_event(error_message)
         # Geben Sie eine detailliertere Fehlermeldung für das Debugging zurück
         return jsonify({'success': False, 'message': error_message}), 500
 
@@ -334,6 +399,7 @@ def quick_inventory():
                 if 'text' in card:
                     templates.append(card['text'])
     except Exception as e:
+        log_event(f"Fehler beim Laden der Asset-Vorlagen von TopDesk: {e}")
         flash(f"Fehler beim Laden der Asset-Vorlagen von TopDesk: {e}", "warning")
 
     return render_template('quick_inventory.html', title='Schnell-Inventur', templates=templates)
@@ -347,6 +413,7 @@ def save_new_assets():
 
     payload = request.get_json()
     if not payload:
+        log_event('Keine Daten erhalten')
         return jsonify({'success': False, 'message': 'Keine Daten erhalten'}), 400
 
     assets_to_create = payload.get('assets', [])
@@ -354,6 +421,7 @@ def save_new_assets():
     model_name = payload.get('modelName', '')  # Für den CSV-Inhalt
 
     if not assets_to_create:
+        log_event('Keine Asset-Daten erhalten')
         return jsonify({'success': False, 'message': 'Keine Asset-Daten erhalten'}), 400
 
     try:
@@ -400,6 +468,7 @@ def save_new_assets():
 
         recipient_email = str(current_user.mail[0]) if current_user.mail and len(current_user.mail) > 0 else None
         if not recipient_email:
+            log_event("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
             raise Exception("E-Mail-Adresse des Benutzers konnte nicht ermittelt werden.")
 
         msg = Message(
@@ -418,13 +487,14 @@ def save_new_assets():
         msg.attach(csv_filename, "text/csv", csv_data)
         mail.send(msg)
 
+        log_event(f'{len(assets_to_create)} Geräte erfasst. Eine CSV-Liste wurde erfolgreich per E-Mail an {recipient_email} gesendet.')
         return jsonify({
             'success': True,
             'message': f'{len(assets_to_create)} Geräte erfasst. Eine CSV-Liste wurde erfolgreich per E-Mail an {recipient_email} gesendet.'
         })
 
     except Exception as e:
-        print(f"Fehler beim Erstellen oder Senden der CSV-E-Mail: {e}")
+        log_event(f"Fehler beim Erstellen oder Senden der CSV-E-Mail: {str(e)}")
         return jsonify({
             'success': False,
             'message': f"Fehler beim Erstellen der CSV-Datei: {str(e)}"
@@ -438,6 +508,7 @@ def get_location_details_by_id():
 
     location_id = request.args.get('id')
     if not location_id:
+        log_event('Keine ID angegeben')
         return jsonify({'success': False, 'message': 'Keine ID angegeben'}), 400
 
     try:
@@ -447,21 +518,23 @@ def get_location_details_by_id():
         # Prüft, ob die Funktion ein sinnvolles Ergebnis zurückgegeben hat.
         # Dies funktioniert sowohl, wenn die Funktion None als auch wenn sie eine leere Liste [] zurückgibt.
         if location_details:
+            log_event(f"Abfrage für Location {location_id}")
             return jsonify({'success': True, 'location': location_details})
         else:
             # Dieser Fall wird jetzt korrekt behandelt, wenn eine leere Liste zurückkommt.
+            log_event(f'Raum mit ID "{location_id}" nicht gefunden.')
             return jsonify({'success': False, 'message': f'Raum mit ID "{location_id}" nicht gefunden.'}), 404
 
     except IndexError:
         # Fängt explizit den "list index out of range"-Fehler ab, falls er doch
         # innerhalb Ihrer topdesk.py-Funktion auftritt.
-        print(f"IndexError bei der Suche nach ID '{location_id}'. Das bedeutet, die Suche lieferte keine Ergebnisse.")
+        log_event(f"IndexError bei der Suche nach ID '{location_id}'. Das bedeutet, die Suche lieferte keine Ergebnisse.")
         return jsonify({'success': False, 'message': f'Raum mit ID "{location_id}" nicht gefunden.'}), 404
 
     except Exception as e:
         # Fängt alle anderen unerwarteten Fehler ab.
         error_message = f"Fehler bei der Abfrage von TopDesk für ID {location_id}: {e}"
-        print(error_message)
+        log_event(error_message)
         return jsonify({'success': False, 'message': error_message}), 500
 
 
@@ -481,6 +554,7 @@ def raum_info():
         branches = topdesk.getBranches()
         building_zones = topdesk.getBuildingZones()
     except Exception as e:
+        log_event(f"Fehler beim Laden der Daten von TopDesk: {e}")
         flash(f"Fehler beim Laden der Daten von TopDesk: {e}", "warning")
 
     # Übergibt alle Listen an das HTML-Template
@@ -502,6 +576,7 @@ def create_new_location():
     room_number = data.get('roomNumber')
 
     if not all([branch, building_zone, room_number]):
+        log_event('Unvollständige Daten erhalten.')
         return jsonify({'success': False, 'message': 'Unvollständige Daten erhalten.'}), 400
 
     try:
@@ -535,11 +610,12 @@ def create_new_location():
                 'newLocation': new_location  # Gibt den neuen Raum zurück
             })
         else:
+            log_event(f"Fehler beim Anlegen des Raums {final_room_name} in TopDesk.")
             return jsonify({'success': False, 'message': "Fehler beim Anlegen des Raums in TopDesk."}), 500
 
     except Exception as e:
         error_message = f"Fehler bei der Raumerstellung: {e}"
-        print(error_message)
+        log_event(error_message)
         return jsonify({'success': False, 'message': error_message}), 500
 
 
@@ -557,6 +633,7 @@ def assign_custom_id_to_room():
     custom_room_id = data.get('custom_room_id')
 
     if not location_uuid or not custom_room_id:
+        log_event('Unvollständige Daten erhalten.')
         return jsonify({'success': False, 'message': 'Unvollständige Daten erhalten.'}), 400
 
     try:
@@ -564,11 +641,13 @@ def assign_custom_id_to_room():
         updated_room = topdesk.updateRoomId(location_uuid, custom_room_id)
 
         if updated_room:
+            log_event(f"Die ID '{custom_room_id}' wurde erfolgreich dem Raum '{updated_room.get('name', '')}' zugewiesen.")
             return jsonify({
                 'success': True,
                 'message': f"Die ID '{custom_room_id}' wurde erfolgreich dem Raum '{updated_room.get('name', '')}' zugewiesen."
             })
         else:
+            log_event("Fehler beim Aktualisieren des Raums in TopDesk.")
             return jsonify({
                 'success': False,
                 'message': "Fehler beim Aktualisieren des Raums in TopDesk."
@@ -576,7 +655,7 @@ def assign_custom_id_to_room():
 
     except Exception as e:
         error_message = f"Fehler bei der Zuweisung: {e}"
-        print(error_message)
+        log_event(error_message)
         return jsonify({'success': False, 'message': error_message}), 500
 
 

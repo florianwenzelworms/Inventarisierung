@@ -1,3 +1,4 @@
+// static/js/raum_info.js
 $(function() {
     const App = {
         audioContext: null,
@@ -12,6 +13,39 @@ $(function() {
     };
 
     const html5QrCode = new Html5Qrcode("reader");
+
+    // KORRIGIERT: Greift jetzt auf die vorab geladenen Daten zu, statt einen AJAX-Call zu machen.
+    function populateAndInitRoomSelect() {
+        const $select = $('#room-select-dropdown');
+
+        // Prüfen, ob die Daten vom Template geladen wurden ('allRoomsData' kommt aus raum_info.html)
+        if (typeof allRoomsData !== 'undefined' && allRoomsData.length > 0) {
+            $select.empty().prop('disabled', false);
+            $select.append('<option selected disabled value="">Bitte Raum auswählen oder suchen...</option>');
+
+            allRoomsData.forEach(function(location) {
+                const locationJson = JSON.stringify(location);
+                const displayName = location.buildingZone?.name ? `${location.buildingZone.name} - ${location.name}` : location.name;
+                $select.append(new Option(displayName, locationJson));
+            });
+
+            // Zerstört eine eventuell vorhandene alte Select2-Instanz, um Fehler zu vermeiden
+            if ($select.hasClass("select2-hidden-accessible")) {
+                $select.select2('destroy');
+            }
+
+            // Initialisiert Select2 auf dem Dropdown-Menü
+            $select.select2({
+                theme: "bootstrap-5",
+                // Wichtig: Sorgt dafür, dass die Suche innerhalb des Modals korrekt funktioniert.
+                dropdownParent: $("#assignRoomModal")
+            });
+        } else {
+            $select.html('<option>Fehler: Raumdaten nicht gefunden.</option>').prop('disabled', true);
+            console.error("Die Variable 'allRoomsData' wurde nicht im Template bereitgestellt oder ist leer.");
+        }
+    }
+
 
     function playBeep() {
         try {
@@ -57,7 +91,6 @@ $(function() {
         $infoDisplay.html(infoHtml);
     }
 
-    // Zentrale Funktion zur Auslösung der Suche
     function triggerSearch(id) {
         App.scannedCustomId = id;
         $("#assign-room-btn").prop('disabled', false);
@@ -78,41 +111,28 @@ $(function() {
         });
     }
 
-    // GEÄNDERT: Prüft jetzt explizit das Format des QR-Codes und gibt bei anderen Typen eine Meldung aus
     const onScanSuccess = (decodedText, decodedResult) => {
         const codeFormat = decodedResult.result.format.formatName;
         const scannedCode = decodedText.trim();
 
-        // Nur fortfahren, wenn es ein QR-Code ist
         if (codeFormat === "QR_CODE") {
-            // Validierung: Prüft, ob es ein 6-stelliger Code ist, der mit 1 beginnt.
             if (/^1\d{5}$/.test(scannedCode)) {
                 html5QrCode.pause();
                 playBeep();
-
-                // Füllt das Textfeld und startet die Suche automatisch
                 $("#qr-code-id-field").val(scannedCode);
                 triggerSearch(scannedCode);
-
                 setTimeout(() => { if(html5QrCode.isScanning) html5QrCode.resume(); }, 1500);
             } else {
-                // Wenn der QR-Code nicht dem Format entspricht, zeige eine kurze Nachricht
                 showNotification("Ungültiger QR-Code. Bitte nur Raum-IDs scannen.");
             }
         } else {
-            // Wenn ein anderer Barcode-Typ gescannt wird
             showNotification("Falscher Code-Typ. Bitte nur QR-Codes scannen.");
         }
     };
 
     function startCamera() {
         if (html5QrCode.isScanning) return;
-
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 250 }
-        };
-
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
         html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
             .then(() => {
                 const videoElement = document.getElementById("reader").querySelector("video");
@@ -151,11 +171,9 @@ $(function() {
         if (App.videoTrack) { App.torchOn = !App.torchOn; App.videoTrack.applyConstraints({ advanced: [{ torch: App.torchOn }] }); }
     });
 
-    // Event-Listener für das manuelle Eingabefeld mit neuer Validierung
     $("#qr-code-id-field").on("keypress", function(e) {
-        if (e.which === 13) { // Enter-Taste
+        if (e.which === 13) {
             const manualId = $(this).val().trim();
-            // Validierung auf 6-stellige Zahl, die mit 1 beginnt
             if (/^1\d{5}$/.test(manualId)) {
                 triggerSearch(manualId);
             } else {
@@ -170,6 +188,10 @@ $(function() {
             $("#scanned-id-label").text(currentId);
             App.assignRoomModal.show();
         }
+    });
+
+    $('#assignRoomModal').on('show.bs.modal', function () {
+        populateAndInitRoomSelect();
     });
 
     $("#new-room-btn").on("click", function() {

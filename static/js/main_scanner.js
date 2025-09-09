@@ -35,7 +35,6 @@ $(function() {
         }
     }
 
-    // Funktion zur Anzeige von client-seitigen Flash-Nachrichten
     function showFlash(message, category = 'danger') {
         const flashId = `flash-${Date.now()}`;
         const flashHtml = `
@@ -46,7 +45,6 @@ $(function() {
         `;
         $('#flash-container').append(flashHtml);
 
-        // Automatisches Ausblenden nach 5 Sekunden
         setTimeout(() => {
             $(`#${flashId}`).alert('close');
         }, 5000);
@@ -55,15 +53,20 @@ $(function() {
     function renderScannedItems() {
         const $list = $(".thumbnails");
         $list.empty();
-        if (App.scannedItems.length === 0) {
-            $list.append('<li class="list-group-item text-muted">Noch keine Geräte gescannt.</li>');
-            return;
-        }
+
         App.scannedItems.forEach(code => {
             let $li = $(`<li class="list-group-item d-flex justify-content-between align-items-center"><span>${code}</span><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeScan('${code}')">&times;</button></li>`);
             $list.prepend($li);
         });
+
+        const inputLi = `
+            <li class="list-group-item" id="manual-input-container">
+                <input type="number" id="manual-asset-input" class="form-control" placeholder="Asset-ID manuell eingeben..." pattern="\\d*">
+            </li>
+        `;
+        $list.append(inputLi);
     }
+
 
     function renderChecklistTable() {
         const $tableBody = $("#asset-checklist-body");
@@ -105,10 +108,13 @@ $(function() {
         const $tableBody = $("#asset-checklist-body");
         $tableBody.html('<tr><td colspan="3" class="text-center"><div class="spinner-border spinner-border-sm"></div> Lade...</td></tr>');
         $.ajax({
-            url: `/get_assets_for_room?room=${encodeURIComponent(roomName)}`, type: "GET",
+            url: `/get_assets_for_room?room=${encodeURIComponent(roomName)}`,
+            type: "GET",
             success: function(response) {
                 App.checklist = response.success ? (response.assets || []) : [];
-                if (!response.success) $tableBody.html(`<tr><td colspan="3" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
+                if (!response.success) {
+                    $tableBody.html(`<tr><td colspan="3" class="text-center text-danger">Fehler: ${response.message}</td></tr>`);
+                }
                 renderChecklistTable();
             },
             error: function() {
@@ -117,6 +123,47 @@ $(function() {
             }
         });
     }
+
+    // NEU: Eigene Funktion zur Abfrage der Raumdetails, wird von Scan und manueller Eingabe genutzt
+    function fetchRoomDetails(roomId) {
+        const $raumfeld = $("#raumfeld");
+        $raumfeld.val("Suche Raum...").prop('disabled', true);
+
+        $.ajax({
+            url: `/get_location_details_by_id?id=${encodeURIComponent(roomId)}`,
+            type: 'GET',
+            success: function(response) {
+                if (response.success && response.location) {
+                    const locationData = response.location;
+                    const buildingName = locationData.buildingZone?.name || '';
+                    const roomName = locationData.name || '';
+                    const displayText = buildingName ? `${buildingName} - ${roomName}` : roomName;
+                    App.raumName = roomName;
+                    $raumfeld.val(displayText);
+                    fetchChecklist(App.raumName);
+                } else {
+                    showFlash("Fehler: " + response.message);
+                    $raumfeld.val("");
+                }
+            },
+            error: function(jqXHR) {
+                if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
+                    showFlash("Fehler: " + jqXHR.responseJSON.message);
+                } else {
+                    showFlash("Serverfehler beim Abrufen der Raumdetails.");
+                }
+                $raumfeld.val("");
+            },
+            complete: function() {
+                $raumfeld.prop('disabled', false);
+                // Beim QR Scan wird die Kamera wieder aktiviert
+                if (html5QrCode.getState() === Html5QrcodeScannerState.PAUSED) {
+                     setTimeout(() => { html5QrCode.resume(); App.scannerState = 'SCANNING'; }, 1000);
+                }
+            }
+        });
+    }
+
 
     function runImport(withRemove) {
         App.importConfirmModal.hide();
@@ -178,7 +225,6 @@ $(function() {
         const config = {
         fps: 10,
         qrbox: { width: 250, height: 250 },
-        // NEU: Diese Zeile schlägt dem Browser vor, den Autofokus zu deaktivieren.
         advanced: [{
             focusMode: "manual"
         }]
@@ -192,39 +238,8 @@ $(function() {
         const codeFormat = decodedResult.result.format.formatName;
 
         if (codeFormat === "QR_CODE") {
-            const roomId = decodedText;
-            $("#raumfeld").val("Suche Raum...").prop('disabled', true);
-
-            $.ajax({
-                url: `/get_location_details_by_id?id=${encodeURIComponent(roomId)}`,
-                type: 'GET',
-                success: function(response) {
-                    if (response.success && response.location) {
-                        const locationData = response.location;
-                        const buildingName = locationData.buildingZone?.name || '';
-                        const roomName = locationData.name || '';
-                        const displayText = buildingName ? `${buildingName} - ${roomName}` : roomName;
-                        App.raumName = roomName;
-                        $("#raumfeld").val(displayText);
-                        fetchChecklist(App.raumName);
-                    } else {
-                        showFlash("Fehler: " + response.message);
-                        $("#raumfeld").val("");
-                    }
-                },
-                error: function(jqXHR) {
-                    if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
-                        showFlash("Fehler: " + jqXHR.responseJSON.message);
-                    } else {
-                        showFlash("Serverfehler beim Abrufen der Raumdetails.");
-                    }
-                    $("#raumfeld").val("");
-                },
-                complete: function() {
-                    $("#raumfeld").prop('disabled', false);
-                    setTimeout(() => { if (html5QrCode.getState() === Html5QrcodeScannerState.PAUSED) html5QrCode.resume(); App.scannerState = 'SCANNING'; }, 1000);
-                }
-            });
+            // GEÄNDERT: Ruft die neue zentrale Funktion auf
+            fetchRoomDetails(decodedText);
         } else {
             addScannedItem(decodedText);
             setTimeout(() => { if (html5QrCode.getState() === Html5QrcodeScannerState.PAUSED) html5QrCode.resume(); App.scannerState = 'SCANNING'; }, 500);
@@ -246,7 +261,19 @@ $(function() {
 
     $(".controls").on("click", "button.start", startCamera);
     $(".controls").on("click", "button.stop", stopCamera);
-    $("#raumfeld").on("keypress", e => { if (e.which === 13) { App.raumName = $(e.target).val(); fetchChecklist(App.raumName); }});
+
+    // GEÄNDERT: Löst jetzt die Suche über die neue `fetchRoomDetails` Funktion aus.
+    $("#raumfeld").on("keypress", function(e) {
+        if (e.which === 13) { // Enter-Taste
+            e.preventDefault();
+            const roomId = $(this).val().trim();
+            if (roomId) {
+                // Die ID wird direkt an die Funktion übergeben
+                fetchRoomDetails(roomId);
+            }
+        }
+    });
+
     $(".controls").on("click", "button.reset", () => {
         stopCamera();
         App.raumName = ""; App.scannedItems = []; App.checklist = [];
@@ -258,7 +285,10 @@ $(function() {
         if (!App.raumName) {
             const manualEntry = $("#raumfeld").val().trim();
             if (manualEntry) {
-                App.raumName = manualEntry;
+                 // Wichtig: Wir brauchen den Raumnamen, nicht die volle Anzeige "Gebäude - Raum"
+                 // App.raumName wird in fetchRoomDetails gesetzt, also sollte es korrekt sein.
+                 // Als Fallback nehmen wir den manuellen Eintrag, falls die Suche fehlschlug aber der User es trotzdem abschicken will.
+                 if (!App.raumName) App.raumName = manualEntry;
             } else {
                 showFlash("Bitte zuerst einen gültigen Raum scannen oder eingeben."); return;
             }
@@ -316,6 +346,25 @@ $(function() {
     $("#import-update-only-btn").on("click", () => runImport(false));
     $("#import-remove-missing-btn").on("click", () => runImport(true));
 
+    $('.thumbnails').on('keypress', '#manual-asset-input', function(e) {
+        if (e.which === 13) {
+            e.preventDefault();
+            const code = $(this).val().trim();
+            if (code) {
+                addScannedItem(code);
+                setTimeout(() => $('#manual-asset-input').focus(), 50);
+            }
+        }
+    });
+
+    $('.thumbnails').on('blur', '#manual-asset-input', function() {
+        const code = $(this).val().trim();
+        if (code) {
+            addScannedItem(code);
+        }
+    });
+
     renderScannedItems();
     startCamera();
 });
+

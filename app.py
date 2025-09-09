@@ -56,7 +56,11 @@ def log_event(action_message, log_type='SYSTEM'):
         action_message (str): Die Log-Nachricht.
         log_type (str): 'USER' für Benutzeraktionen, 'SYSTEM' für Systemereignisse.
     """
-    user_id = current_user.id if current_user.is_authenticated else 'Anonymous'
+    try:
+        user_id = current_user.id if current_user.is_authenticated else 'Anonymous'
+    except Exception as e:
+        user_id = 'System'
+
 
     caller_name = "Kein Request-Kontext"
     if request:
@@ -664,9 +668,35 @@ def assign_custom_id_to_room():
         return jsonify({'success': False, 'message': error_message}), 500
 
 
+@app.route('/logs')
+def logs():
+    """Zeigt die Log-Datei an. Nur für Admins."""
+    # Sichert die Seite für eine bestimmte Benutzergruppe ab
+    if '1.05 EDV' not in current_user.groups:
+        flash("Sie haben keine Berechtigung, auf diese Seite zuzugreifen.", "danger")
+        log_event(f"Unberechtigter Zugriff auf /logs versucht von Benutzer '{current_user.username}'.", log_type='SYSTEM')
+        return redirect(url_for('index'))
+
+    log_content = "Log-Datei nicht gefunden oder leer."
+    try:
+        log_path = os.path.join(app.root_path, 'logs', 'audit.log')
+        with open(log_path, 'r', encoding='utf-8') as f:
+            # Liest die Datei von hinten nach vorne, um die neuesten Einträge zuerst zu zeigen
+            lines = f.readlines()
+            log_content = "".join(reversed(lines))
+    except FileNotFoundError:
+        log_event("Die Log-Datei 'audit.log' wurde nicht gefunden.", log_type='SYSTEM')
+        pass # Die Standardnachricht wird angezeigt
+    except Exception as e:
+        log_event(f"Fehler beim Lesen der Log-Datei: {e}", log_type='SYSTEM')
+        log_content = f"Fehler beim Lesen der Log-Datei: {e}"
+
+    return render_template('logs.html', title='Logs', log_content=log_content)
+
+
 if __name__ == '__main__':
     # No SSL
     # app.run(host='0.0.0.0', port=3000, debug=True)
-
+    log_event(f"Server gestartet", log_type='SYSTEM')
     # With SSL active, for testing purposes on iPad for ex.
     app.run(host='0.0.0.0', port=3000, debug=True, ssl_context="adhoc")

@@ -1,5 +1,5 @@
 # Verwenden Sie ein offizielles, schlankes Python-Image als Basis
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # Setzen Sie das Arbeitsverzeichnis im Container
 WORKDIR /app

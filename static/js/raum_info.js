@@ -272,9 +272,22 @@ $(function() {
         const doAssignment = () => {
             const $feedback = $("#assign-feedback");
             $feedback.html('<div class="spinner-border spinner-border-sm"></div> Zuweisung wird gespeichert...').removeClass().addClass('alert alert-info').show();
+
+            // GEÄNDERT: Payload wird dynamisch erstellt, um die ID des alten Raums mitzusenden.
+            let payload = {
+                location_uuid: selectedLocationUuid,
+                custom_room_id: currentId
+            };
+
+            // Fügt die alte Raum-ID hinzu, wenn die ID von einem anderen Raum verschoben wird.
+            // Das Backend kann dies nutzen, um die ID zuerst vom alten Raum zu entfernen.
+            if (App.initialLocation && App.initialLocation.id !== selectedLocationUuid) {
+                payload.old_location_uuid = App.initialLocation.id;
+            }
+
             $.ajax({
                 url: "/assign_custom_id_to_room", type: "POST",
-                data: JSON.stringify({ location_uuid: selectedLocationUuid, custom_room_id: currentId }),
+                data: JSON.stringify(payload),
                 contentType: "application/json; charset=utf-8", dataType: "json",
                 success: function(response) {
                     const alertClass = response.success ? 'alert-success' : 'alert-danger';
@@ -309,3 +322,4 @@ $(function() {
 
     startCamera();
 });
+

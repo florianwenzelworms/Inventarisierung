@@ -631,6 +631,7 @@ def assign_custom_id_to_room():
     data = request.get_json()
     location_uuid = data.get('location_uuid')
     custom_room_id = data.get('custom_room_id')
+    old_room_uuid = data.get('old_location_uuid')
 
     if not location_uuid or not custom_room_id:
         log_event('Unvollständige Daten erhalten.')
@@ -638,6 +639,10 @@ def assign_custom_id_to_room():
 
     try:
         # Ruft die von Ihnen bereitgestellte Funktion aus topdesk.py auf
+        if old_room_uuid:
+            old_room = topdesk.updateRoomId(old_room_uuid, '')
+            log_event(
+                f"Die ID '{custom_room_id}' wurde erfolgreich vom alten Raum '{old_room.get('name', '')}' entfernt.")
         updated_room = topdesk.updateRoomId(location_uuid, custom_room_id)
 
         if updated_room:
